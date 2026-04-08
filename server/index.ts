@@ -46,6 +46,7 @@ const rootDir = path.resolve(__dirname, '..');
 const app = express();
 const distDir = path.join(rootDir, 'dist');
 const allowedVideoPattern = /^video[1-8]\.mp4$/i;
+const pythonCommand = process.env.PYTHON_BIN ?? 'python3';
 const lastSuccessfulDetections = new Map<string, DetectionResult>();
 const inFlightDetections = new Map<string, Promise<DetectionResult>>();
 const pendingRequests = new Map<string, PendingRequest>();
@@ -144,7 +145,7 @@ function handleWorkerMessage(message: WorkerMessage) {
 }
 
 function startWorker(workerIndex: number): WorkerEntry {
-  const workerProcess = spawn('python', ['-u', 'ml/scripts/detect_worker.py'], { cwd: rootDir });
+  const workerProcess = spawn(pythonCommand, ['-u', 'ml/scripts/detect_worker.py'], { cwd: rootDir });
 
   const readyPromise = new Promise<void>((resolve, reject) => {
     let resolved = false;
