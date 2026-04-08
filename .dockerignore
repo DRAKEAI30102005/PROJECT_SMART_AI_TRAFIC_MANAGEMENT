@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+__pycache__
+*.pyc
+*.pyo
+.venv
+runs
+scalar-hackathon-delivery.zip

@@ -1,0 +1,5 @@
+{
+  "name": "Intelligent Traffic Management System",
+  "description": "AI-powered traffic management dashboard with dynamic signal control and ambulance priority detection.",
+  "requestFramePermissions": []
+}
