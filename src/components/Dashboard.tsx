@@ -11,6 +11,7 @@ interface DashboardProps {
   onChangeFootage: () => void;
   onGoHome: () => void;
   selectedCameras: CameraFeed[];
+  initialSharedDetections?: Record<number, SharedDetectionFrame>;
 }
 
 type HistoryPoint = {
@@ -19,12 +20,12 @@ type HistoryPoint = {
   activeAmbulances: number;
 };
 
-export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras }: DashboardProps) {
+export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras, initialSharedDetections = {} }: DashboardProps) {
   const { lanes, stats, ambulanceAlert, triggerAmbulance, isAmbulanceOverride, updateVideoAmbulanceDetection } = useTrafficSimulation();
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [liveLaneSnapshots, setLiveLaneSnapshots] = useState<Record<number, LaneLiveSnapshot>>({});
   const [analysisLaneSnapshots, setAnalysisLaneSnapshots] = useState<Record<number, LaneLiveSnapshot>>({});
-  const [sharedDetections, setSharedDetections] = useState<Record<number, SharedDetectionFrame>>({});
+  const [sharedDetections, setSharedDetections] = useState<Record<number, SharedDetectionFrame>>(initialSharedDetections);
   const [historicalDensity, setHistoricalDensity] = useState<HistoryPoint[]>([]);
   const liveLaneSnapshotsRef = React.useRef(liveLaneSnapshots);
   const videoElementsRef = React.useRef<Record<number, HTMLVideoElement | null>>({});
@@ -116,6 +117,17 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
   }, [showAnalysis]);
 
   useEffect(() => {
+    if (Object.keys(initialSharedDetections).length === 0) {
+      return;
+    }
+
+    setSharedDetections((previous) => ({
+      ...initialSharedDetections,
+      ...previous,
+    }));
+  }, [initialSharedDetections]);
+
+  useEffect(() => {
     for (const [laneIdText, camera] of Object.entries(laneCameraMap)) {
       requestLaneDetection(Number(laneIdText), camera, 0.35);
     }
@@ -151,7 +163,7 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
     };
 
     runSharedDetectionPulse();
-    const interval = window.setInterval(runSharedDetectionPulse, 140);
+    const interval = window.setInterval(runSharedDetectionPulse, 110);
 
     return () => {
       cancelled = true;
