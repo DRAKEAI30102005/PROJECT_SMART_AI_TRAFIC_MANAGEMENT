@@ -50,9 +50,10 @@ const lastSuccessfulDetections = new Map<string, DetectionResult>();
 const inFlightDetections = new Map<string, Promise<DetectionResult>>();
 const pendingRequests = new Map<string, PendingRequest>();
 const workerPool: Array<WorkerEntry | null> = [];
-const workerPoolSize = 4;
+const workerPoolSize = Math.max(1, Number(process.env.DETECTOR_WORKERS ?? 1));
 
 let workerSequence = 0;
+let warmedWorkers = 0;
 
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
@@ -153,7 +154,7 @@ function startWorker(workerIndex: number): WorkerEntry {
       if (!resolved) {
         reject(new Error(startupLogs.join(' ') || `Detector worker ${workerIndex} timed out while starting.`));
       }
-    }, 45000);
+    }, 120000);
 
     const stdoutReader = readline.createInterface({ input: workerProcess.stdout });
     const stderrReader = readline.createInterface({ input: workerProcess.stderr });
@@ -170,6 +171,7 @@ function startWorker(workerIndex: number): WorkerEntry {
           if (!resolved) {
             resolved = true;
             clearTimeout(readyTimer);
+            warmedWorkers = Math.max(warmedWorkers, workerIndex + 1);
             resolve();
           }
           return;
@@ -299,7 +301,7 @@ function runDetector(video: string, timestamp: number, cacheKey: string): Promis
         }
 
         reject(new Error('Detector timed out while processing the frame.'));
-      }, 12000);
+      }, 20000);
 
       pendingRequests.set(requestId, {
         resolve,
@@ -334,11 +336,11 @@ function runDetector(video: string, timestamp: number, cacheKey: string): Promis
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, workers: workerPoolSize });
+  res.json({ ok: true, workers: workerPoolSize, detectorReady: warmedWorkers > 0, warmedWorkers });
 });
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, workers: workerPoolSize, benchmark: true });
+  res.json({ ok: true, workers: workerPoolSize, benchmark: true, detectorReady: warmedWorkers > 0, warmedWorkers });
 });
 
 app.get('/api/detections', async (req, res) => {
