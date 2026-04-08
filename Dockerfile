@@ -2,6 +2,7 @@ FROM node:20-bullseye
 
 ENV PYTHONUNBUFFERED=1
 ENV PORT=7860
+ENV DETECTOR_WORKERS=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
