@@ -361,14 +361,10 @@ export function LaneCard({
       return;
     }
 
-    if (lane.light === 'red') {
-      video.pause();
-    } else {
-      void video.play().catch(() => {
-        // Ignore autoplay/play interruption issues from the browser.
-      });
-    }
-  }, [lane.light]);
+    void video.play().catch(() => {
+      // Ignore autoplay/play interruption issues from the browser.
+    });
+  }, []);
 
   useEffect(() => {
     onAmbulanceDetectionChange(hasAmbulanceInFrame);
@@ -510,22 +506,20 @@ export function LaneCard({
 
     const runDetectionLoop = async () => {
       if (cancelled || requestInFlightRef.current) {
-        scheduleNextPoll(200);
+        scheduleNextPoll(120);
         return;
       }
 
       const currentTime = videoRef.current?.currentTime ?? 0;
       const lastFetchedTime = lastFetchedTimeRef.current;
       const frameMovedEnough =
-        lastFetchedTime === null || Math.abs(currentTime - lastFetchedTime) >= 0.08;
-      const lanePaused = lane.light === 'red';
+        lastFetchedTime === null || Math.abs(currentTime - lastFetchedTime) >= 0.1;
 
-      if (frameMovedEnough || lanePaused) {
+      if (frameMovedEnough) {
         await fetchDetections(currentTime);
       }
 
-      const nextDelay = lane.light === 'red' ? 180 : 100;
-      scheduleNextPoll(nextDelay);
+      scheduleNextPoll(120);
     };
 
     runDetectionLoop();
@@ -536,7 +530,7 @@ export function LaneCard({
         window.clearTimeout(pollingTimeoutRef.current);
       }
     };
-  }, [lane.light, videoFile]);
+  }, [videoFile]);
 
   const visibleVehicleCount = trackedDetections.filter((track) => track.missingFrames === 0).length;
   void onTriggerAmbulance;
@@ -584,7 +578,7 @@ export function LaneCard({
           {(isLoading || requestInFlightRef.current) && (
             <div className="inline-flex items-center gap-2 rounded-md bg-black/65 px-2 py-1 text-xs text-cyan-200">
               <LoaderCircle size={14} className="animate-spin" />
-              {lane.light === 'red' ? 'Signal is red, frame is paused.' : 'Tracking moving vehicles...'}
+              {'Tracking vehicles continuously...'}
             </div>
           )}
           {error && <div className="rounded-md bg-red-950/80 px-2 py-1 text-xs text-red-200">{error}</div>}

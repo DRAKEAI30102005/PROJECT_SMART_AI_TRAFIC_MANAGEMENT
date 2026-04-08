@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 try:
     import cv2
@@ -18,6 +19,7 @@ except ImportError as exc:
 
 
 TARGET_CLASSES = {"car", "motorcycle", "bus", "truck", "ambulance"}
+FRAME_CACHE: dict[str, dict[str, Any]] = {}
 
 
 def clamp(value: float, low: float, high: float) -> float:
@@ -31,16 +33,46 @@ def resolve_weights(root_dir: Path) -> str:
     return "yolov8n.pt"
 
 
-def extract_frame(video_path: Path, timestamp: float):
+def get_capture(video_path: Path):
+    cache_key = str(video_path.resolve())
+    cached = FRAME_CACHE.get(cache_key)
+    if cached:
+        capture = cached["capture"]
+        if capture.isOpened():
+            return cached
+
+        capture.release()
+        FRAME_CACHE.pop(cache_key, None)
+
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
         raise RuntimeError(f"Could not open video: {video_path}")
 
     fps = capture.get(cv2.CAP_PROP_FPS) or 25.0
+    cached = {
+        "capture": capture,
+        "fps": fps,
+        "last_frame_index": -1,
+    }
+    FRAME_CACHE[cache_key] = cached
+    return cached
+
+
+def extract_frame(video_path: Path, timestamp: float):
+    cached = get_capture(video_path)
+    capture = cached["capture"]
+    fps = cached["fps"]
     frame_index = max(int(timestamp * fps), 0)
-    capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+
+    if frame_index != cached["last_frame_index"] + 1:
+        capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+
     success, frame = capture.read()
-    capture.release()
+    if not success or frame is None:
+        capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+        success, frame = capture.read()
+
+    cached["last_frame_index"] = frame_index
 
     if not success or frame is None:
         raise RuntimeError(f"Could not read frame at {timestamp:.2f}s from {video_path}")
@@ -53,11 +85,12 @@ def run_detection(model: YOLO, video_path: Path, timestamp: float, uses_custom_w
     frame, width, height = extract_frame(video_path, timestamp)
     results = model.predict(
         frame,
-        imgsz=1280 if uses_custom_weights else 960,
-        conf=0.22 if uses_custom_weights else 0.25,
+        imgsz=960 if uses_custom_weights else 768,
+        conf=0.2 if uses_custom_weights else 0.24,
         iou=0.55,
         agnostic_nms=False,
         verbose=False,
+        max_det=40,
     )
 
     detections = []
