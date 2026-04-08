@@ -1,0 +1,205 @@
+openapi: 3.1.0
+info:
+  title: SmartFlow AI Benchmark API
+  version: 1.0.0
+  description: Submission wrapper around the existing SmartFlow AI traffic detector and controller.
+servers:
+  - url: http://localhost:3001
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: health
+      responses:
+        "200":
+          description: Service is available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /tasks:
+    get:
+      summary: Enumerate benchmark tasks
+      operationId: tasks
+      responses:
+        "200":
+          description: Available tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Task"
+                required: [tasks]
+  /reset:
+    post:
+      summary: Reset the benchmark environment
+      operationId: reset
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                task_id:
+                  type: string
+      responses:
+        "200":
+          description: Reset benchmark state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/State"
+  /state:
+    get:
+      summary: Get current benchmark state
+      operationId: state
+      responses:
+        "200":
+          description: Current state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/State"
+  /step:
+    post:
+      summary: Apply a traffic-light control action
+      operationId: step
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StepRequest"
+      responses:
+        "200":
+          description: Result of the action
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StepResult"
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        workers:
+          type: integer
+        benchmark:
+          type: boolean
+      required: [ok, workers, benchmark]
+    TaskLane:
+      type: object
+      properties:
+        lane_id:
+          type: integer
+        name:
+          type: string
+        video:
+          type: string
+        timestamp:
+          type: number
+      required: [lane_id, name, video, timestamp]
+    Task:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        evaluation:
+          type: string
+          enum: [density, emergency]
+        emergency_lane_id:
+          type: integer
+        lanes:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskLane"
+      required: [id, title, description, evaluation, lanes]
+    DetectionSummary:
+      type: object
+      properties:
+        label:
+          type: string
+        confidence:
+          type: number
+      required: [label, confidence]
+    StateLane:
+      type: object
+      properties:
+        lane_id:
+          type: integer
+        name:
+          type: string
+        video:
+          type: string
+        timestamp:
+          type: number
+        detected_count:
+          type: integer
+        has_ambulance:
+          type: boolean
+        detections:
+          type: array
+          items:
+            $ref: "#/components/schemas/DetectionSummary"
+      required: [lane_id, name, video, timestamp, detected_count, has_ambulance, detections]
+    State:
+      type: object
+      properties:
+        task_id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        evaluation:
+          type: string
+          enum: [density, emergency]
+        emergency_lane_id:
+          type: integer
+          nullable: true
+        expected_lane_id:
+          type: integer
+        lanes:
+          type: array
+          items:
+            $ref: "#/components/schemas/StateLane"
+        done:
+          type: boolean
+        step_count:
+          type: integer
+      required: [task_id, title, description, evaluation, emergency_lane_id, expected_lane_id, lanes, done, step_count]
+    StepRequest:
+      type: object
+      properties:
+        selected_lane_id:
+          type: integer
+      required: [selected_lane_id]
+    StepResult:
+      type: object
+      properties:
+        task_id:
+          type: string
+        selected_lane_id:
+          type: integer
+        expected_lane_id:
+          type: integer
+        reward:
+          type: number
+        score:
+          type: number
+        done:
+          type: boolean
+        reason:
+          type: string
+      required: [task_id, selected_lane_id, expected_lane_id, reward, score, done, reason]
