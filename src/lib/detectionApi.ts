@@ -23,6 +23,8 @@ export interface SharedDetectionFrame {
   updatedAt: number;
 }
 
+const DETECTION_REQUEST_TIMEOUT_MS = 3500;
+
 const API_ROOT_CANDIDATES =
   typeof window !== 'undefined'
     ? Array.from(
@@ -114,24 +116,40 @@ export async function fetchDetectionFrame(videoFile: string, timeInSeconds: numb
     throw new Error('Detection API is not reachable yet on the deployed app.');
   }
 
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => {
+    controller.abort();
+  }, DETECTION_REQUEST_TIMEOUT_MS);
+
   const response = await fetch(
-    `${apiUrl(apiRoot, '/detections')}?video=${encodeURIComponent(videoFile)}&time=${timeInSeconds.toFixed(2)}`
-  );
-  const responseText = await response.text();
-  const isJsonResponse = response.headers.get('content-type')?.includes('application/json') ?? false;
-  const payload = isJsonResponse
-    ? parseDetectionPayload(responseText)
-    : {
-        detections: [],
-        hasAmbulance: false,
-        note: 'Detector unavailable.',
-        error: 'Detection request failed.',
-        details: 'Detection service returned a non-JSON response. Retrying automatically.',
-      };
+    `${apiUrl(apiRoot, '/detections')}?video=${encodeURIComponent(videoFile)}&time=${timeInSeconds.toFixed(2)}`,
+    { signal: controller.signal }
+  ).finally(() => {
+    window.clearTimeout(timeoutId);
+  });
 
-  if (!response.ok) {
-    throw new Error(payload.details || payload.error || 'Detection request failed.');
+  try {
+    const responseText = await response.text();
+    const isJsonResponse = response.headers.get('content-type')?.includes('application/json') ?? false;
+    const payload = isJsonResponse
+      ? parseDetectionPayload(responseText)
+      : {
+          detections: [],
+          hasAmbulance: false,
+          note: 'Detector unavailable.',
+          error: 'Detection request failed.',
+          details: 'Detection service returned a non-JSON response. Retrying automatically.',
+        };
+
+    if (!response.ok) {
+      throw new Error(payload.details || payload.error || 'Detection request failed.');
+    }
+
+    return payload;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('Detector is still warming up. Retrying immediately.');
+    }
+    throw error;
   }
-
-  return payload;
 }
