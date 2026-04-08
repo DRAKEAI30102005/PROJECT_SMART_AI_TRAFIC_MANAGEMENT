@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Literal
 
-import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from pydantic import BaseModel
 
 
@@ -122,7 +122,7 @@ def tasks() -> dict[str, Any]:
 
 
 @app.post("/reset")
-def reset(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+def reset(payload: dict[str, Any] | None = Body(default=None)) -> dict[str, Any]:
     global SESSION, TASK_INDEX
 
     task_id = payload.get("task_id") if isinstance(payload, dict) else None
@@ -143,11 +143,12 @@ def state() -> dict[str, Any]:
 
 
 @app.post("/step")
-def step(payload: dict[str, Any]) -> dict[str, Any]:
+def step(payload: dict[str, Any] | None = Body(default=None)) -> dict[str, Any]:
     global SESSION
     if SESSION is None:
         raise HTTPException(status_code=404, detail="Call POST /reset before requesting /step.")
 
+    payload = payload or {}
     selected_lane_id = payload.get("selected_lane_id", payload.get("lane_id", payload.get("action")))
     if not isinstance(selected_lane_id, int):
         raise HTTPException(status_code=400, detail="Provide an integer selected_lane_id.")
@@ -167,7 +168,10 @@ def step(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import uvicorn
+
+    port = int(os.environ.get("PORT", "8000"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
 
 
 if __name__ == "__main__":
