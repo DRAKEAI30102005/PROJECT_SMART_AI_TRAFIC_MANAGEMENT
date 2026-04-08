@@ -97,12 +97,12 @@ def run_detection(model: YOLO, video_path: Path, timestamp: float, uses_custom_w
     frame, width, height = extract_frame(video_path, timestamp)
     results = model.predict(
         frame,
-        imgsz=512 if uses_custom_weights else 448,
-        conf=0.26 if uses_custom_weights else 0.3,
+        imgsz=448 if uses_custom_weights else 384,
+        conf=0.28 if uses_custom_weights else 0.32,
         iou=0.5,
         agnostic_nms=False,
         verbose=False,
-        max_det=14,
+        max_det=10,
     )
 
     detections = []

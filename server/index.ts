@@ -53,7 +53,7 @@ const inFlightDetections = new Map<string, Promise<DetectionResult>>();
 const pendingRequests = new Map<string, PendingRequest>();
 const workerPool: Array<WorkerEntry | null> = [];
 const workerPoolSize = Math.max(1, Number(process.env.DETECTOR_WORKERS ?? 1));
-const CACHE_BUCKETS_PER_SECOND = 5;
+const CACHE_BUCKETS_PER_SECOND = 3;
 const STALE_VIDEO_FALLBACK_SECONDS = 0.45;
 const LIVE_EMPTY_FALLBACK_NOTE = 'Detector is still catching up. Keeping the live stream active with the last stable state.';
 
