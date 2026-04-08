@@ -55,6 +55,9 @@ export function CCTVSelector({ onStart }: CCTVSelectorProps) {
                   {cam.name}
                 </h3>
                 <p className="text-sm text-gray-500 mt-1">Source: {cam.videoFile}</p>
+                {cam.videoFile === 'video8.mp4' ? (
+                  <h3 className="mt-2 text-sm font-semibold text-red-600">This footage contain ambulance</h3>
+                ) : null}
               </button>
             );
           })}
