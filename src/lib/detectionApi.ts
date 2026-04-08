@@ -23,7 +23,7 @@ export interface SharedDetectionFrame {
   updatedAt: number;
 }
 
-const DETECTION_REQUEST_TIMEOUT_MS = 3500;
+const DETECTION_REQUEST_TIMEOUT_MS = 9000;
 
 const API_ROOT_CANDIDATES =
   typeof window !== 'undefined'
