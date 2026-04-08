@@ -1,11 +1,13 @@
 FROM node:20-bullseye
 
 ENV PYTHONUNBUFFERED=1
+ENV PYTHON_BIN=python3
 ENV PORT=7860
 ENV DETECTOR_WORKERS=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
+    python-is-python3 \
     python3-pip \
     ffmpeg \
     libgl1 \
