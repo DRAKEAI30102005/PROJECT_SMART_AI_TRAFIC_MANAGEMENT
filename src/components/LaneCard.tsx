@@ -65,12 +65,12 @@ interface TrackedDetection extends Detection {
 
 const TRACK_IOU_THRESHOLD = 0.28;
 const DUPLICATE_IOU_THRESHOLD = 0.62;
-const TRACK_SMOOTHING = 0.68;
-const MAX_MISSING_FRAMES = 10;
-const MAX_STALE_TRACK_MS = 2200;
+const TRACK_SMOOTHING = 0.72;
+const MAX_MISSING_FRAMES = 12;
+const MAX_STALE_TRACK_MS = 2600;
 const EXIT_MARGIN_PERCENT = 3;
-const DETECTION_POLL_MS = 110;
-const DETECTION_FRAME_STEP_SECONDS = 0.2;
+const DETECTION_POLL_MS = 95;
+const DETECTION_FRAME_STEP_SECONDS = 0.16;
 const API_ROOT_CANDIDATES =
   typeof window !== 'undefined'
     ? Array.from(

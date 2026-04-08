@@ -48,11 +48,13 @@ const distDir = path.join(rootDir, 'dist');
 const allowedVideoPattern = /^video[1-8]\.mp4$/i;
 const pythonCommand = process.env.PYTHON_BIN ?? 'python3';
 const lastSuccessfulDetections = new Map<string, DetectionResult>();
+const lastDetectionByVideo = new Map<string, { timestamp: number; result: DetectionResult }>();
 const inFlightDetections = new Map<string, Promise<DetectionResult>>();
 const pendingRequests = new Map<string, PendingRequest>();
 const workerPool: Array<WorkerEntry | null> = [];
 const workerPoolSize = Math.max(1, Number(process.env.DETECTOR_WORKERS ?? 1));
 const CACHE_BUCKETS_PER_SECOND = 5;
+const STALE_VIDEO_FALLBACK_SECONDS = 0.45;
 
 let workerSequence = 0;
 let warmedWorkers = 0;
@@ -80,6 +82,23 @@ function staleResult(cacheKey: string): DetectionResult | null {
     : null;
 }
 
+function staleVideoResult(video: string, timestamp: number): DetectionResult | null {
+  const cached = lastDetectionByVideo.get(video);
+  if (!cached) {
+    return null;
+  }
+
+  if (Math.abs(cached.timestamp - timestamp) > STALE_VIDEO_FALLBACK_SECONDS) {
+    return null;
+  }
+
+  return {
+    ...cached.result,
+    stale: true,
+    note: 'Streaming the latest stable detections while a fresh frame is processed.',
+  };
+}
+
 function resolvePendingRequest(id: string, result: DetectionResult) {
   const pending = pendingRequests.get(id);
   if (!pending) {
@@ -93,6 +112,13 @@ function resolvePendingRequest(id: string, result: DetectionResult) {
     worker.busyCount = Math.max(0, worker.busyCount - 1);
   }
   lastSuccessfulDetections.set(pending.cacheKey, result);
+  const [video, timestampText] = pending.cacheKey.split(':');
+  if (video && timestampText) {
+    lastDetectionByVideo.set(video, {
+      timestamp: Number(timestampText),
+      result,
+    });
+  }
   pending.resolve(result);
 }
 
@@ -367,6 +393,15 @@ app.get('/api/detections', async (req, res) => {
   }
 
   try {
+    const fallback = staleVideoResult(video, quantizedTimestamp);
+    if (fallback) {
+      void runDetector(video, quantizedTimestamp, cacheKey).catch(() => {
+        // Keep serving the last stable result while the next frame catches up.
+      });
+      res.json(fallback);
+      return;
+    }
+
     const result = await runDetector(video, quantizedTimestamp, cacheKey);
     res.json(result);
   } catch (error) {
