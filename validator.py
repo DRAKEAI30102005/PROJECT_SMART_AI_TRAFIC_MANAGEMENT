@@ -21,12 +21,14 @@ REQUIRED_FILES = [
     "Dockerfile",
     "inference.py",
     "pyproject.toml",
+    "uv.lock",
     "validator.py",
     "openapi.yaml",
     "openenv.yaml",
     "openenvy.yaml",
     "bench/tasks.json",
     "bench/graders.py",
+    "server/app.py",
 ]
 
 
