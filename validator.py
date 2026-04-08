@@ -20,6 +20,7 @@ from graders import grade_task, load_tasks  # noqa: E402
 REQUIRED_FILES = [
     "Dockerfile",
     "inference.py",
+    "pyproject.toml",
     "validator.py",
     "openapi.yaml",
     "openenv.yaml",
