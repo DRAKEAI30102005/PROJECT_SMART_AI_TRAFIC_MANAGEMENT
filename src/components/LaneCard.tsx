@@ -13,6 +13,7 @@ interface LaneCardProps {
   backgroundMode?: boolean;
   onTriggerAmbulance: () => void;
   sharedDetection?: SharedDetectionFrame | null;
+  sharedDetectionEnabled?: boolean;
   registerVideoElement?: (laneId: number, element: HTMLVideoElement | null) => void;
 }
 
@@ -258,6 +259,7 @@ export function LaneCard({
   backgroundMode = false,
   onTriggerAmbulance,
   sharedDetection = null,
+  sharedDetectionEnabled = false,
   registerVideoElement,
 }: LaneCardProps) {
   const videoUrl = `/videos/${videoFile}`;
@@ -394,7 +396,7 @@ export function LaneCard({
   }, [backgroundMode, sharedDetection]);
 
   useEffect(() => {
-    if (backgroundMode || sharedDetection) {
+    if (backgroundMode || sharedDetectionEnabled) {
       return;
     }
 
@@ -466,7 +468,7 @@ export function LaneCard({
         window.clearTimeout(pollingTimeoutRef.current);
       }
     };
-  }, [backgroundMode, sharedDetection, videoFile]);
+  }, [backgroundMode, sharedDetectionEnabled, videoFile]);
 
   const visibleVehicleCount = trackedDetections.filter((track) => track.missingFrames === 0).length;
   void onTriggerAmbulance;
