@@ -22,6 +22,7 @@ REQUIRED_FILES = [
     "inference.py",
     "validator.py",
     "openapi.yaml",
+    "openenv.yaml",
     "openenvy.yaml",
     "bench/tasks.json",
     "bench/graders.py",
