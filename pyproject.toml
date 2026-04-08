@@ -9,7 +9,13 @@ description = "Submission package metadata for SmartFlow AI benchmark validation
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "fastapi>=0.115.0",
   "openai>=1.30.0",
+  "openenv-core>=0.2.0,<0.3.0",
   "PyYAML>=6.0.2",
   "requests>=2.32.0",
+  "uvicorn[standard]>=0.30.0",
 ]
+
+[project.scripts]
+server = "server.app:server"

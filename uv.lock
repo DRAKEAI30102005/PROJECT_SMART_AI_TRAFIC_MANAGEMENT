@@ -1,0 +1,26 @@
+version = 1
+revision = 1
+requires-python = ">=3.11"
+
+[[package]]
+name = "smartflow-ai-submission"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+  { name = "fastapi" },
+  { name = "openai" },
+  { name = "openenv-core" },
+  { name = "pyyaml" },
+  { name = "requests" },
+  { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+  { name = "fastapi", specifier = ">=0.115.0" },
+  { name = "openai", specifier = ">=1.30.0" },
+  { name = "openenv-core", specifier = ">=0.2.0,<0.3.0" },
+  { name = "pyyaml", specifier = ">=6.0.2" },
+  { name = "requests", specifier = ">=2.32.0" },
+  { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
+]
