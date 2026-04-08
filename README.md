@@ -2,7 +2,7 @@
 title: SmartFlow AI
 emoji: 🚦
 colorFrom: blue
-colorTo: cyan
+colorTo: blue
 sdk: docker
 app_port: 7860
 pinned: false
