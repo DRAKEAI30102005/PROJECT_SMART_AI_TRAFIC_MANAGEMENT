@@ -55,6 +55,7 @@ const workerPool: Array<WorkerEntry | null> = [];
 const workerPoolSize = Math.max(1, Number(process.env.DETECTOR_WORKERS ?? 1));
 const CACHE_BUCKETS_PER_SECOND = 5;
 const STALE_VIDEO_FALLBACK_SECONDS = 0.45;
+const LIVE_EMPTY_FALLBACK_NOTE = 'Detector is still catching up. Keeping the live stream active with the last stable state.';
 
 let workerSequence = 0;
 let warmedWorkers = 0;
@@ -355,10 +356,18 @@ function runDetector(video: string, timestamp: number, cacheKey: string): Promis
             resolve(videoFallback);
             return;
           }
+
+          resolve({
+            detections: [],
+            hasAmbulance: false,
+            note: LIVE_EMPTY_FALLBACK_NOTE,
+            stale: true,
+          });
+          return;
         }
 
         reject(new Error('Detector timed out while processing the frame.'));
-      }, 20000);
+      }, 30000);
 
       pendingRequests.set(requestId, {
         resolve,

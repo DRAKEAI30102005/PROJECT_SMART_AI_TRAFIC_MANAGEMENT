@@ -28,7 +28,7 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
   const [historicalDensity, setHistoricalDensity] = useState<HistoryPoint[]>([]);
   const liveLaneSnapshotsRef = React.useRef(liveLaneSnapshots);
   const videoElementsRef = React.useRef<Record<number, HTMLVideoElement | null>>({});
-  const detectionLoopInFlightRef = React.useRef(false);
+  const laneRequestInFlightRef = React.useRef<Record<number, boolean>>({});
 
   const registerVideoElement = useCallback((laneId: number, element: HTMLVideoElement | null) => {
     videoElementsRef.current[laneId] = element;
@@ -54,8 +54,8 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
   useEffect(() => {
     let cancelled = false;
 
-    const interval = window.setInterval(async () => {
-      if (cancelled || detectionLoopInFlightRef.current) {
+    const runSharedDetectionPulse = () => {
+      if (cancelled) {
         return;
       }
 
@@ -71,41 +71,40 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
         return;
       }
 
-      detectionLoopInFlightRef.current = true;
-      try {
-        const results = await Promise.allSettled(
-          activeLanes.map(async ({ lane, camera, videoElement }) => {
-            const timeInSeconds = videoElement.currentTime ?? 0;
-            const payload = await fetchDetectionFrame(camera.videoFile, timeInSeconds);
-            return [
-              lane.id,
-              {
+      for (const { lane, camera, videoElement } of activeLanes) {
+        if (laneRequestInFlightRef.current[lane.id]) {
+          continue;
+        }
+
+        laneRequestInFlightRef.current[lane.id] = true;
+        const timeInSeconds = videoElement.currentTime ?? 0;
+
+        void fetchDetectionFrame(camera.videoFile, timeInSeconds)
+          .then((payload) => {
+            if (cancelled) {
+              return;
+            }
+
+            setSharedDetections((previous) => ({
+              ...previous,
+              [lane.id]: {
                 timeInSeconds,
                 payload,
                 updatedAt: Date.now(),
-              } satisfies SharedDetectionFrame,
-            ] as const;
-          })
-        );
-
-        if (!cancelled) {
-          const successfulResults = results
-            .filter((result): result is PromiseFulfilledResult<readonly [number, SharedDetectionFrame]> => result.status === 'fulfilled')
-            .map((result) => result.value);
-
-          if (successfulResults.length > 0) {
-            setSharedDetections((previous) => ({
-              ...previous,
-              ...Object.fromEntries(successfulResults),
+              },
             }));
-          }
-        }
-      } catch {
-        // LaneCard continues animating the last stable tracks if a pulse fails.
-      } finally {
-        detectionLoopInFlightRef.current = false;
+          })
+          .catch(() => {
+            // Keep the last stable shared detection for this lane if a fresh request is slow.
+          })
+          .finally(() => {
+            laneRequestInFlightRef.current[lane.id] = false;
+          });
       }
-    }, 140);
+    };
+
+    runSharedDetectionPulse();
+    const interval = window.setInterval(runSharedDetectionPulse, 140);
 
     return () => {
       cancelled = true;
@@ -172,6 +171,7 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
               onLiveDataChange={updateLaneSnapshot}
               onTriggerAmbulance={() => triggerAmbulance(lane.id)}
               sharedDetection={sharedDetections[lane.id] ?? null}
+              sharedDetectionEnabled
               registerVideoElement={registerVideoElement}
             />
           ) : null
