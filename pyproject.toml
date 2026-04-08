@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smartflow-ai-submission"
+version = "0.1.0"
+description = "Submission package metadata for SmartFlow AI benchmark validation."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "openai>=1.30.0",
+  "PyYAML>=6.0.2",
+  "requests>=2.32.0",
+]
