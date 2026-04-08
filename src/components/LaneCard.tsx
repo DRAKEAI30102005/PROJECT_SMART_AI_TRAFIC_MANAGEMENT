@@ -269,12 +269,17 @@ export function LaneCard({
   const trackCounterRef = useRef(0);
   const lastSnapshotSignatureRef = useRef('');
   const lastSnapshotEmitAtRef = useRef(0);
+  const trackedDetectionsRef = useRef<TrackedDetection[]>([]);
 
   const [trackedDetections, setTrackedDetections] = useState<TrackedDetection[]>([]);
   const [hasAmbulanceInFrame, setHasAmbulanceInFrame] = useState(false);
   const [modelNote, setModelNote] = useState('Loading detector...');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    trackedDetectionsRef.current = trackedDetections;
+  }, [trackedDetections]);
 
   const applyDetectionPayload = (payload: DetectionApiResponse, timeInSeconds: number) => {
     const mappedDetections = payload.detections.map((item, index) => ({
@@ -417,8 +422,16 @@ export function LaneCard({
           return;
         }
 
-        setError(requestError instanceof Error ? requestError.message : 'Unknown detection error');
-        setModelNote('Waiting for detector...');
+        const message = requestError instanceof Error ? requestError.message : 'Unknown detection error';
+        const hasLiveTracks = trackedDetectionsRef.current.some((track) => track.missingFrames <= MAX_MISSING_FRAMES);
+
+        if (hasLiveTracks && /timed out|warming up|not reachable/i.test(message)) {
+          setError(null);
+          setModelNote('Keeping the last stable detections while the next frame loads.');
+        } else {
+          setError(message);
+          setModelNote('Waiting for detector...');
+        }
       } finally {
         requestInFlightRef.current = false;
         if (!cancelled) {

@@ -99,6 +99,21 @@ function staleVideoResult(video: string, timestamp: number): DetectionResult | n
   };
 }
 
+function parseLiveCacheKey(cacheKey: string): { video: string; timestamp: number } | null {
+  const parts = cacheKey.split(':');
+  if (parts.length !== 2) {
+    return null;
+  }
+
+  const [video, timestampText] = parts;
+  const timestamp = Number(timestampText);
+  if (!video || !Number.isFinite(timestamp)) {
+    return null;
+  }
+
+  return { video, timestamp };
+}
+
 function resolvePendingRequest(id: string, result: DetectionResult) {
   const pending = pendingRequests.get(id);
   if (!pending) {
@@ -112,10 +127,10 @@ function resolvePendingRequest(id: string, result: DetectionResult) {
     worker.busyCount = Math.max(0, worker.busyCount - 1);
   }
   lastSuccessfulDetections.set(pending.cacheKey, result);
-  const [video, timestampText] = pending.cacheKey.split(':');
-  if (video && timestampText) {
-    lastDetectionByVideo.set(video, {
-      timestamp: Number(timestampText),
+  const liveCacheKey = parseLiveCacheKey(pending.cacheKey);
+  if (liveCacheKey) {
+    lastDetectionByVideo.set(liveCacheKey.video, {
+      timestamp: liveCacheKey.timestamp,
       result,
     });
   }
@@ -331,6 +346,15 @@ function runDetector(video: string, timestamp: number, cacheKey: string): Promis
         if (fallback) {
           resolve(fallback);
           return;
+        }
+
+        const liveCacheKey = parseLiveCacheKey(cacheKey);
+        if (liveCacheKey) {
+          const videoFallback = staleVideoResult(liveCacheKey.video, liveCacheKey.timestamp);
+          if (videoFallback) {
+            resolve(videoFallback);
+            return;
+          }
         }
 
         reject(new Error('Detector timed out while processing the frame.'));
