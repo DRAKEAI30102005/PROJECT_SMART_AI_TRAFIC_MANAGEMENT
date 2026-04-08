@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { LaneState } from '../hooks/useTrafficSimulation';
 import { LoaderCircle } from 'lucide-react';
+import { type Detection, type DetectionApiResponse, type SharedDetectionFrame, fetchDetectionFrame } from '../lib/detectionApi';
 
 interface LaneCardProps {
   key?: React.Key;
@@ -11,25 +12,8 @@ interface LaneCardProps {
   onLiveDataChange?: (snapshot: LaneLiveSnapshot) => void;
   backgroundMode?: boolean;
   onTriggerAmbulance: () => void;
-}
-
-interface Detection {
-  id: string;
-  label: string;
-  confidence: number;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-interface DetectionApiResponse {
-  detections: Omit<Detection, 'id'>[];
-  hasAmbulance: boolean;
-  note: string;
-  error?: string;
-  details?: string;
-  stale?: boolean;
+  sharedDetection?: SharedDetectionFrame | null;
+  registerVideoElement?: (laneId: number, element: HTMLVideoElement | null) => void;
 }
 
 export interface LaneLiveSnapshot {
@@ -71,97 +55,6 @@ const MAX_STALE_TRACK_MS = 2600;
 const EXIT_MARGIN_PERCENT = 3;
 const DETECTION_POLL_MS = 95;
 const DETECTION_FRAME_STEP_SECONDS = 0.16;
-const API_ROOT_CANDIDATES =
-  typeof window !== 'undefined'
-    ? Array.from(
-        new Set([
-          window.location.origin,
-          '',
-          `${window.location.protocol}//${window.location.hostname}:3001`,
-          'http://localhost:3001',
-        ])
-      )
-    : ['http://localhost:3001', ''];
-
-let healthCheckPromise: Promise<string | null> | null = null;
-
-function apiUrl(root: string, endpoint: string): string {
-  if (!root) {
-    return `/api${endpoint}`;
-  }
-
-  const normalizedRoot = root.endsWith('/') ? root.slice(0, -1) : root;
-  return `${normalizedRoot}/api${endpoint}`;
-}
-
-async function ensureDetectionApiReady(): Promise<string | null> {
-  if (!healthCheckPromise) {
-    healthCheckPromise = (async () => {
-      for (const root of API_ROOT_CANDIDATES) {
-        try {
-          const apiHealthResponse = await fetch(apiUrl(root, '/health'));
-          if (apiHealthResponse.ok) {
-            return root;
-          }
-
-          const rootHealthResponse = await fetch(root ? `${root}/health` : '/health');
-          if (rootHealthResponse.ok) {
-            return root;
-          }
-        } catch {
-          // Try the next candidate.
-        }
-
-        try {
-          const fallbackResponse = await fetch(root ? `${root}/health` : '/health');
-          if (fallbackResponse.ok) {
-            return root;
-          }
-        } catch {
-          // Try the next candidate.
-        }
-      }
-      return null;
-    })().finally(() => {
-      window.setTimeout(() => {
-        healthCheckPromise = null;
-      }, 1500);
-    });
-  }
-
-  return healthCheckPromise;
-}
-
-function extractJsonObject(text: string): string | null {
-  const trimmed = text.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-    return trimmed;
-  }
-
-  const firstBrace = trimmed.indexOf('{');
-  const lastBrace = trimmed.lastIndexOf('}');
-  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-    return null;
-  }
-
-  return trimmed.slice(firstBrace, lastBrace + 1);
-}
-
-function parseDetectionPayload(text: string): DetectionApiResponse {
-  try {
-    const jsonPayload = extractJsonObject(text);
-    if (!jsonPayload) {
-      throw new Error('Empty detector response');
-    }
-    return JSON.parse(jsonPayload) as DetectionApiResponse;
-  } catch {
-    throw new Error('Detection service is warming up. Retrying automatically.');
-  }
-}
 
 function computeIoU(a: TrackBox, b: TrackBox): number {
   const ax2 = a.x + a.w;
@@ -364,6 +257,8 @@ export function LaneCard({
   onLiveDataChange,
   backgroundMode = false,
   onTriggerAmbulance,
+  sharedDetection = null,
+  registerVideoElement,
 }: LaneCardProps) {
   const videoUrl = `/videos/${videoFile}`;
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -381,6 +276,23 @@ export function LaneCard({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const applyDetectionPayload = (payload: DetectionApiResponse, timeInSeconds: number) => {
+    const mappedDetections = payload.detections.map((item, index) => ({
+      ...item,
+      id: `${item.label}-${index}-${item.x}-${item.y}-${item.w}-${item.h}`,
+    }));
+
+    lastFetchedTimeRef.current = timeInSeconds;
+    setTrackedDetections((previousTracks) =>
+      mergeDetectionsIntoTracks(previousTracks, mappedDetections, trackCounterRef, timeInSeconds, performance.now())
+    );
+
+    setHasAmbulanceInFrame(payload.hasAmbulance);
+    setModelNote(String(payload.note ?? 'YOLO detections loaded.'));
+    setError(null);
+    setIsLoading(false);
+  };
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) {
@@ -391,6 +303,14 @@ export function LaneCard({
       // Ignore autoplay/play interruption issues from the browser.
     });
   }, []);
+
+  useEffect(() => {
+    registerVideoElement?.(lane.id, videoRef.current);
+
+    return () => {
+      registerVideoElement?.(lane.id, null);
+    };
+  }, [lane.id, registerVideoElement]);
 
   useEffect(() => {
     onAmbulanceDetectionChange(hasAmbulanceInFrame);
@@ -461,6 +381,18 @@ export function LaneCard({
   }, [backgroundMode]);
 
   useEffect(() => {
+    if (backgroundMode || !sharedDetection) {
+      return;
+    }
+
+    applyDetectionPayload(sharedDetection.payload, sharedDetection.timeInSeconds);
+  }, [backgroundMode, sharedDetection]);
+
+  useEffect(() => {
+    if (backgroundMode || sharedDetection) {
+      return;
+    }
+
     let cancelled = false;
 
     const scheduleNextPoll = (delayMs: number) => {
@@ -474,47 +406,12 @@ export function LaneCard({
       requestInFlightRef.current = true;
 
       try {
-        const apiRoot = await ensureDetectionApiReady();
-        if (apiRoot === null) {
-          throw new Error('Detection API is not reachable yet on the deployed app.');
-        }
-
-        const response = await fetch(
-          `${apiUrl(apiRoot, '/detections')}?video=${encodeURIComponent(videoFile)}&time=${timeInSeconds.toFixed(2)}`
-        );
-        const responseText = await response.text();
-        const isJsonResponse = response.headers.get('content-type')?.includes('application/json') ?? false;
-        const payload = isJsonResponse
-          ? parseDetectionPayload(responseText)
-          : {
-              detections: [],
-              hasAmbulance: false,
-              note: 'Detector unavailable.',
-              error: 'Detection request failed.',
-              details: 'Detection service returned a non-JSON response. Retrying automatically.',
-            };
-
-        if (!response.ok) {
-          throw new Error(payload.details || payload.error || 'Detection request failed.');
-        }
+        const payload = await fetchDetectionFrame(videoFile, timeInSeconds);
 
         if (cancelled) {
           return;
         }
-
-        const mappedDetections = payload.detections.map((item, index) => ({
-          ...item,
-          id: `${item.label}-${index}-${item.x}-${item.y}-${item.w}-${item.h}`,
-        }));
-
-        lastFetchedTimeRef.current = timeInSeconds;
-        setTrackedDetections((previousTracks) =>
-          mergeDetectionsIntoTracks(previousTracks, mappedDetections, trackCounterRef, timeInSeconds, performance.now())
-        );
-
-        setHasAmbulanceInFrame(payload.hasAmbulance);
-        setModelNote(String(payload.note ?? 'YOLO detections loaded.'));
-        setError(null);
+        applyDetectionPayload(payload, timeInSeconds);
       } catch (requestError) {
         if (cancelled) {
           return;
@@ -556,7 +453,7 @@ export function LaneCard({
         window.clearTimeout(pollingTimeoutRef.current);
       }
     };
-  }, [videoFile]);
+  }, [backgroundMode, sharedDetection, videoFile]);
 
   const visibleVehicleCount = trackedDetections.filter((track) => track.missingFrames === 0).length;
   void onTriggerAmbulance;

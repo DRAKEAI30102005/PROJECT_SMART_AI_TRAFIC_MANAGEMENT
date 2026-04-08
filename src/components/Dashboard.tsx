@@ -3,6 +3,7 @@ import { useTrafficSimulation } from '../hooks/useTrafficSimulation';
 import { LaneCard, type LaneLiveSnapshot } from './LaneCard';
 import { AnalysisDashboard } from './AnalysisDashboard';
 import { CameraFeed } from '../lib/cameraFeeds';
+import { type SharedDetectionFrame, fetchDetectionFrame } from '../lib/detectionApi';
 import { Activity, AlertTriangle, Car, Clock, TrendingDown, Siren, LogOut, BarChart3, Video, Home } from 'lucide-react';
 
 interface DashboardProps {
@@ -23,8 +24,15 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [liveLaneSnapshots, setLiveLaneSnapshots] = useState<Record<number, LaneLiveSnapshot>>({});
   const [analysisLaneSnapshots, setAnalysisLaneSnapshots] = useState<Record<number, LaneLiveSnapshot>>({});
+  const [sharedDetections, setSharedDetections] = useState<Record<number, SharedDetectionFrame>>({});
   const [historicalDensity, setHistoricalDensity] = useState<HistoryPoint[]>([]);
   const liveLaneSnapshotsRef = React.useRef(liveLaneSnapshots);
+  const videoElementsRef = React.useRef<Record<number, HTMLVideoElement | null>>({});
+  const detectionLoopInFlightRef = React.useRef(false);
+
+  const registerVideoElement = useCallback((laneId: number, element: HTMLVideoElement | null) => {
+    videoElementsRef.current[laneId] = element;
+  }, []);
 
   useEffect(() => {
     liveLaneSnapshotsRef.current = liveLaneSnapshots;
@@ -42,6 +50,59 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
 
     return () => window.clearInterval(interval);
   }, [showAnalysis]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const interval = window.setInterval(async () => {
+      if (cancelled || detectionLoopInFlightRef.current) {
+        return;
+      }
+
+      const activeLanes = lanes
+        .map((lane, index) => ({
+          lane,
+          camera: selectedCameras[index],
+          videoElement: videoElementsRef.current[lane.id],
+        }))
+        .filter((item): item is { lane: typeof lanes[number]; camera: CameraFeed; videoElement: HTMLVideoElement } => Boolean(item.camera && item.videoElement));
+
+      if (activeLanes.length === 0) {
+        return;
+      }
+
+      detectionLoopInFlightRef.current = true;
+      try {
+        const results = await Promise.all(
+          activeLanes.map(async ({ lane, camera, videoElement }) => {
+            const timeInSeconds = videoElement.currentTime ?? 0;
+            const payload = await fetchDetectionFrame(camera.videoFile, timeInSeconds);
+            return [
+              lane.id,
+              {
+                timeInSeconds,
+                payload,
+                updatedAt: Date.now(),
+              } satisfies SharedDetectionFrame,
+            ] as const;
+          })
+        );
+
+        if (!cancelled) {
+          setSharedDetections(Object.fromEntries(results));
+        }
+      } catch {
+        // LaneCard continues animating the last stable tracks if a pulse fails.
+      } finally {
+        detectionLoopInFlightRef.current = false;
+      }
+    }, 140);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [lanes, selectedCameras]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -101,12 +162,14 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
               onAmbulanceDetectionChange={(detected) => updateVideoAmbulanceDetection(lane.id, detected)}
               onLiveDataChange={updateLaneSnapshot}
               onTriggerAmbulance={() => triggerAmbulance(lane.id)}
+              sharedDetection={sharedDetections[lane.id] ?? null}
+              registerVideoElement={registerVideoElement}
             />
           ) : null
         )}
       </div>
     ),
-    [lanes, selectedCameras, triggerAmbulance, updateLaneSnapshot, updateVideoAmbulanceDetection]
+    [lanes, registerVideoElement, selectedCameras, sharedDetections, triggerAmbulance, updateLaneSnapshot, updateVideoAmbulanceDetection]
   );
 
   return (
