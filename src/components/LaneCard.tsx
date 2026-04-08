@@ -69,6 +69,8 @@ const TRACK_SMOOTHING = 0.6;
 const MAX_MISSING_FRAMES = 8;
 const MAX_STALE_TRACK_MS = 1800;
 const EXIT_MARGIN_PERCENT = 3;
+const DETECTION_POLL_MS = 150;
+const DETECTION_FRAME_STEP_SECONDS = 0.18;
 const API_ROOT_CANDIDATES =
   typeof window !== 'undefined'
     ? Array.from(
@@ -530,20 +532,20 @@ export function LaneCard({
 
     const runDetectionLoop = async () => {
       if (cancelled || requestInFlightRef.current) {
-        scheduleNextPoll(120);
+        scheduleNextPoll(DETECTION_POLL_MS);
         return;
       }
 
       const currentTime = videoRef.current?.currentTime ?? 0;
       const lastFetchedTime = lastFetchedTimeRef.current;
       const frameMovedEnough =
-        lastFetchedTime === null || Math.abs(currentTime - lastFetchedTime) >= 0.1;
+        lastFetchedTime === null || Math.abs(currentTime - lastFetchedTime) >= DETECTION_FRAME_STEP_SECONDS;
 
       if (frameMovedEnough) {
         await fetchDetections(currentTime);
       }
 
-      scheduleNextPoll(120);
+      scheduleNextPoll(DETECTION_POLL_MS);
     };
 
     runDetectionLoop();

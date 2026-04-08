@@ -21,6 +21,11 @@ except ImportError as exc:
 TARGET_CLASSES = {"car", "motorcycle", "bus", "truck", "ambulance"}
 FRAME_CACHE: dict[str, dict[str, Any]] = {}
 
+try:
+    cv2.setNumThreads(1)
+except AttributeError:
+    pass
+
 
 def clamp(value: float, low: float, high: float) -> float:
     return max(low, min(value, high))
@@ -85,12 +90,12 @@ def run_detection(model: YOLO, video_path: Path, timestamp: float, uses_custom_w
     frame, width, height = extract_frame(video_path, timestamp)
     results = model.predict(
         frame,
-        imgsz=960 if uses_custom_weights else 768,
-        conf=0.2 if uses_custom_weights else 0.24,
-        iou=0.55,
+        imgsz=768 if uses_custom_weights else 640,
+        conf=0.22 if uses_custom_weights else 0.25,
+        iou=0.5,
         agnostic_nms=False,
         verbose=False,
-        max_det=40,
+        max_det=28,
     )
 
     detections = []

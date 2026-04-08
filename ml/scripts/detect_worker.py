@@ -4,7 +4,14 @@ import json
 import sys
 from pathlib import Path
 
+import cv2
+import numpy as np
 from ultralytics import YOLO
+
+try:
+    import torch
+except ImportError:
+    torch = None
 
 from detect_common import resolve_weights, run_detection
 
@@ -16,9 +23,25 @@ def emit(message: dict) -> None:
 
 def main() -> None:
     root_dir = Path(__file__).resolve().parents[2]
+    cv2.setNumThreads(1)
+    if torch is not None:
+        torch.set_num_threads(1)
+        if hasattr(torch, "set_num_interop_threads"):
+            torch.set_num_interop_threads(1)
+
     weights = resolve_weights(root_dir)
     model = YOLO(weights)
     uses_custom_weights = str(weights).endswith("best.pt")
+    warmup_frame = np.zeros((384, 640, 3), dtype=np.uint8)
+    model.predict(
+        warmup_frame,
+        imgsz=640,
+        conf=0.25,
+        iou=0.5,
+        agnostic_nms=False,
+        verbose=False,
+        max_det=16,
+    )
 
     emit({"ready": True, "weights": weights, "custom": uses_custom_weights})
 
