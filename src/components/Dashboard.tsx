@@ -73,7 +73,7 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
 
       detectionLoopInFlightRef.current = true;
       try {
-        const results = await Promise.all(
+        const results = await Promise.allSettled(
           activeLanes.map(async ({ lane, camera, videoElement }) => {
             const timeInSeconds = videoElement.currentTime ?? 0;
             const payload = await fetchDetectionFrame(camera.videoFile, timeInSeconds);
@@ -89,7 +89,16 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
         );
 
         if (!cancelled) {
-          setSharedDetections(Object.fromEntries(results));
+          const successfulResults = results
+            .filter((result): result is PromiseFulfilledResult<readonly [number, SharedDetectionFrame]> => result.status === 'fulfilled')
+            .map((result) => result.value);
+
+          if (successfulResults.length > 0) {
+            setSharedDetections((previous) => ({
+              ...previous,
+              ...Object.fromEntries(successfulResults),
+            }));
+          }
         }
       } catch {
         // LaneCard continues animating the last stable tracks if a pulse fails.
