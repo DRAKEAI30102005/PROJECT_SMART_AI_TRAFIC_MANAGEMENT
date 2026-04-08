@@ -65,12 +65,12 @@ interface TrackedDetection extends Detection {
 
 const TRACK_IOU_THRESHOLD = 0.28;
 const DUPLICATE_IOU_THRESHOLD = 0.62;
-const TRACK_SMOOTHING = 0.6;
-const MAX_MISSING_FRAMES = 8;
-const MAX_STALE_TRACK_MS = 1800;
+const TRACK_SMOOTHING = 0.68;
+const MAX_MISSING_FRAMES = 10;
+const MAX_STALE_TRACK_MS = 2200;
 const EXIT_MARGIN_PERCENT = 3;
-const DETECTION_POLL_MS = 150;
-const DETECTION_FRAME_STEP_SECONDS = 0.18;
+const DETECTION_POLL_MS = 110;
+const DETECTION_FRAME_STEP_SECONDS = 0.2;
 const API_ROOT_CANDIDATES =
   typeof window !== 'undefined'
     ? Array.from(
@@ -514,7 +514,7 @@ export function LaneCard({
 
         setHasAmbulanceInFrame(payload.hasAmbulance);
         setModelNote(String(payload.note ?? 'YOLO detections loaded.'));
-        setError(payload.stale ? 'Using last stable detection while the detector catches up.' : null);
+        setError(null);
       } catch (requestError) {
         if (cancelled) {
           return;
@@ -601,7 +601,7 @@ export function LaneCard({
         </div>
 
         <div className="pointer-events-none absolute left-2 top-8 z-20 flex max-w-[82%] flex-col gap-2">
-          {(isLoading || requestInFlightRef.current) && (
+          {isLoading && (
             <div className="inline-flex items-center gap-2 rounded-md bg-black/65 px-2 py-1 text-xs text-cyan-200">
               <LoaderCircle size={14} className="animate-spin" />
               {'Tracking vehicles continuously...'}

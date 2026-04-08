@@ -52,6 +52,7 @@ const inFlightDetections = new Map<string, Promise<DetectionResult>>();
 const pendingRequests = new Map<string, PendingRequest>();
 const workerPool: Array<WorkerEntry | null> = [];
 const workerPoolSize = Math.max(1, Number(process.env.DETECTOR_WORKERS ?? 1));
+const CACHE_BUCKETS_PER_SECOND = 5;
 
 let workerSequence = 0;
 let warmedWorkers = 0;
@@ -271,6 +272,11 @@ function getWorkerIndexForVideo(video: string): number {
 }
 
 function runDetector(video: string, timestamp: number, cacheKey: string): Promise<DetectionResult> {
+  const cached = lastSuccessfulDetections.get(cacheKey);
+  if (cached) {
+    return Promise.resolve(cached);
+  }
+
   const existingRequest = inFlightDetections.get(cacheKey);
   if (existingRequest) {
     return existingRequest;
@@ -347,7 +353,8 @@ app.get('/health', (_req, res) => {
 app.get('/api/detections', async (req, res) => {
   const video = String(req.query.video ?? '');
   const timestamp = Number(req.query.time ?? 0);
-  const cacheKey = `${video}:${Math.floor(timestamp * 8) / 8}`;
+  const quantizedTimestamp = Math.floor(timestamp * CACHE_BUCKETS_PER_SECOND) / CACHE_BUCKETS_PER_SECOND;
+  const cacheKey = `${video}:${quantizedTimestamp}`;
 
   if (!allowedVideoPattern.test(video)) {
     res.status(400).json({ error: 'Unsupported video file.' });
@@ -360,7 +367,7 @@ app.get('/api/detections', async (req, res) => {
   }
 
   try {
-    const result = await runDetector(video, timestamp, cacheKey);
+    const result = await runDetector(video, quantizedTimestamp, cacheKey);
     res.json(result);
   } catch (error) {
     res.status(500).json({
