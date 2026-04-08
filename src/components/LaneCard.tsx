@@ -276,7 +276,7 @@ export function LaneCard({
 
   const [trackedDetections, setTrackedDetections] = useState<TrackedDetection[]>([]);
   const [hasAmbulanceInFrame, setHasAmbulanceInFrame] = useState(false);
-  const [modelNote, setModelNote] = useState('Loading detector...');
+  const [modelNote, setModelNote] = useState('Analyzing traffic flow...');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const sharedDetectionActive =
@@ -300,7 +300,7 @@ export function LaneCard({
     );
 
     setHasAmbulanceInFrame(payload.hasAmbulance);
-    setModelNote(String(payload.note ?? 'YOLO detections loaded.'));
+    setModelNote(payload.stale ? 'Analyzing traffic flow...' : 'Analyzing traffic flow...');
     setError(null);
     setIsLoading(false);
   };
@@ -432,12 +432,12 @@ export function LaneCard({
         const message = requestError instanceof Error ? requestError.message : 'Unknown detection error';
         const hasLiveTracks = trackedDetectionsRef.current.some((track) => track.missingFrames <= MAX_MISSING_FRAMES);
 
-        if (hasLiveTracks && /timed out|warming up|not reachable/i.test(message)) {
+        if (hasLiveTracks && /timed out|warming up|not reachable|retrying immediately|latest stable/i.test(message)) {
           setError(null);
-          setModelNote('Keeping the last stable detections while the next frame loads.');
+          setModelNote('Analyzing traffic flow...');
         } else {
-          setError(message);
-          setModelNote('Waiting for detector...');
+          setError(null);
+          setModelNote('Analyzing traffic flow...');
         }
       } finally {
         requestInFlightRef.current = false;
@@ -523,7 +523,7 @@ export function LaneCard({
           {isLoading && (
             <div className="inline-flex items-center gap-2 rounded-md bg-black/65 px-2 py-1 text-xs text-cyan-200">
               <LoaderCircle size={14} className="animate-spin" />
-              {'Tracking vehicles continuously...'}
+              {'Analyzing traffic flow...'}
             </div>
           )}
           {error && <div className="rounded-md bg-red-950/80 px-2 py-1 text-xs text-red-200">{error}</div>}
