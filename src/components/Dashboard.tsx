@@ -129,7 +129,7 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
 
   useEffect(() => {
     for (const [laneIdText, camera] of Object.entries(laneCameraMap)) {
-      requestLaneDetection(Number(laneIdText), camera, 0.35);
+      requestLaneDetection(Number(laneIdText), camera, 0.25);
     }
   }, [laneCameraMap, requestLaneDetection]);
 
@@ -163,7 +163,7 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
     };
 
     runSharedDetectionPulse();
-    const interval = window.setInterval(runSharedDetectionPulse, 110);
+    const interval = window.setInterval(runSharedDetectionPulse, 180);
 
     return () => {
       cancelled = true;
