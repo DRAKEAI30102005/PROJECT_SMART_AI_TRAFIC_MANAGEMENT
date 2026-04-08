@@ -69,27 +69,51 @@ const TRACK_SMOOTHING = 0.6;
 const MAX_MISSING_FRAMES = 8;
 const MAX_STALE_TRACK_MS = 1800;
 const EXIT_MARGIN_PERCENT = 3;
-const API_BASE_URLS =
+const API_ROOT_CANDIDATES =
   typeof window !== 'undefined'
     ? Array.from(
         new Set([
-          `${window.location.protocol}//${window.location.hostname}:3001/api`,
-          '/api',
-          'http://localhost:3001/api',
+          window.location.origin,
+          '',
+          `${window.location.protocol}//${window.location.hostname}:3001`,
+          'http://localhost:3001',
         ])
       )
-    : ['http://localhost:3001/api', '/api'];
+    : ['http://localhost:3001', ''];
 
 let healthCheckPromise: Promise<string | null> | null = null;
+
+function apiUrl(root: string, endpoint: string): string {
+  if (!root) {
+    return `/api${endpoint}`;
+  }
+
+  const normalizedRoot = root.endsWith('/') ? root.slice(0, -1) : root;
+  return `${normalizedRoot}/api${endpoint}`;
+}
 
 async function ensureDetectionApiReady(): Promise<string | null> {
   if (!healthCheckPromise) {
     healthCheckPromise = (async () => {
-      for (const baseUrl of API_BASE_URLS) {
+      for (const root of API_ROOT_CANDIDATES) {
         try {
-          const response = await fetch(`${baseUrl}/health`);
-          if (response.ok) {
-            return baseUrl;
+          const apiHealthResponse = await fetch(apiUrl(root, '/health'));
+          if (apiHealthResponse.ok) {
+            return root;
+          }
+
+          const rootHealthResponse = await fetch(root ? `${root}/health` : '/health');
+          if (rootHealthResponse.ok) {
+            return root;
+          }
+        } catch {
+          // Try the next candidate.
+        }
+
+        try {
+          const fallbackResponse = await fetch(root ? `${root}/health` : '/health');
+          if (fallbackResponse.ok) {
+            return root;
           }
         } catch {
           // Try the next candidate.
@@ -448,13 +472,13 @@ export function LaneCard({
       requestInFlightRef.current = true;
 
       try {
-        const apiBaseUrl = await ensureDetectionApiReady();
-        if (!apiBaseUrl) {
-          throw new Error('Detection API is not reachable yet. Start the app with `npm run dev` and wait a few seconds.');
+        const apiRoot = await ensureDetectionApiReady();
+        if (apiRoot === null) {
+          throw new Error('Detection API is not reachable yet on the deployed app.');
         }
 
         const response = await fetch(
-          `${apiBaseUrl}/detections?video=${encodeURIComponent(videoFile)}&time=${timeInSeconds.toFixed(2)}`
+          `${apiUrl(apiRoot, '/detections')}?video=${encodeURIComponent(videoFile)}&time=${timeInSeconds.toFixed(2)}`
         );
         const responseText = await response.text();
         const isJsonResponse = response.headers.get('content-type')?.includes('application/json') ?? false;
