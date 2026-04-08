@@ -121,12 +121,20 @@ export async function fetchDetectionFrame(videoFile: string, timeInSeconds: numb
     controller.abort();
   }, DETECTION_REQUEST_TIMEOUT_MS);
 
-  const response = await fetch(
-    `${apiUrl(apiRoot, '/detections')}?video=${encodeURIComponent(videoFile)}&time=${timeInSeconds.toFixed(2)}`,
-    { signal: controller.signal }
-  ).finally(() => {
+  let response: Response;
+  try {
+    response = await fetch(
+      `${apiUrl(apiRoot, '/detections')}?video=${encodeURIComponent(videoFile)}&time=${timeInSeconds.toFixed(2)}`,
+      { signal: controller.signal }
+    );
+  } catch (error) {
     window.clearTimeout(timeoutId);
-  });
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('Detector is still warming up. Retrying immediately.');
+    }
+    throw error;
+  }
+  window.clearTimeout(timeoutId);
 
   try {
     const responseText = await response.text();
@@ -147,9 +155,6 @@ export async function fetchDetectionFrame(videoFile: string, timeInSeconds: numb
 
     return payload;
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new Error('Detector is still warming up. Retrying immediately.');
-    }
     throw error;
   }
 }
