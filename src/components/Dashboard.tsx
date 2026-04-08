@@ -29,10 +29,74 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
   const liveLaneSnapshotsRef = React.useRef(liveLaneSnapshots);
   const videoElementsRef = React.useRef<Record<number, HTMLVideoElement | null>>({});
   const laneRequestInFlightRef = React.useRef<Record<number, boolean>>({});
+  const laneCameraMap = useMemo(
+    () =>
+      Object.fromEntries(
+        lanes
+          .map((lane, index) => [lane.id, selectedCameras[index]] as const)
+          .filter((entry): entry is readonly [number, CameraFeed] => Boolean(entry[1]))
+      ),
+    [lanes, selectedCameras]
+  );
 
-  const registerVideoElement = useCallback((laneId: number, element: HTMLVideoElement | null) => {
-    videoElementsRef.current[laneId] = element;
-  }, []);
+  const requestLaneDetection = useCallback(
+    (laneId: number, camera: CameraFeed, explicitTimeInSeconds?: number) => {
+      if (laneRequestInFlightRef.current[laneId]) {
+        return;
+      }
+
+      laneRequestInFlightRef.current[laneId] = true;
+      const videoElement = videoElementsRef.current[laneId];
+      const fallbackStartupTime = camera.videoFile === 'video8.mp4' ? 0.6 : 0.35;
+      const timeInSeconds = explicitTimeInSeconds ?? videoElement?.currentTime ?? fallbackStartupTime;
+
+      void fetchDetectionFrame(camera.videoFile, timeInSeconds)
+        .then((payload) => {
+          setSharedDetections((previous) => ({
+            ...previous,
+            [laneId]: {
+              timeInSeconds,
+              payload,
+              updatedAt: Date.now(),
+            },
+          }));
+        })
+        .catch(() => {
+          // Leave the existing shared detection in place if bootstrap is still warming up.
+        })
+        .finally(() => {
+          laneRequestInFlightRef.current[laneId] = false;
+        });
+    },
+    []
+  );
+
+  const registerVideoElement = useCallback(
+    (laneId: number, element: HTMLVideoElement | null) => {
+      videoElementsRef.current[laneId] = element;
+
+      if (!element) {
+        return;
+      }
+
+      const camera = laneCameraMap[laneId];
+      if (!camera) {
+        return;
+      }
+
+      const triggerImmediateDetection = () => {
+        requestLaneDetection(laneId, camera);
+      };
+
+      if (element.readyState >= 2) {
+        triggerImmediateDetection();
+        return;
+      }
+
+      element.addEventListener('loadeddata', triggerImmediateDetection, { once: true });
+    },
+    [laneCameraMap, requestLaneDetection]
+  );
 
   useEffect(() => {
     liveLaneSnapshotsRef.current = liveLaneSnapshots;
@@ -50,6 +114,12 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
 
     return () => window.clearInterval(interval);
   }, [showAnalysis]);
+
+  useEffect(() => {
+    for (const [laneIdText, camera] of Object.entries(laneCameraMap)) {
+      requestLaneDetection(Number(laneIdText), camera, 0.35);
+    }
+  }, [laneCameraMap, requestLaneDetection]);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,34 +142,11 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
       }
 
       for (const { lane, camera, videoElement } of activeLanes) {
-        if (laneRequestInFlightRef.current[lane.id]) {
-          continue;
+        if (cancelled) {
+          return;
         }
 
-        laneRequestInFlightRef.current[lane.id] = true;
-        const timeInSeconds = videoElement.currentTime ?? 0;
-
-        void fetchDetectionFrame(camera.videoFile, timeInSeconds)
-          .then((payload) => {
-            if (cancelled) {
-              return;
-            }
-
-            setSharedDetections((previous) => ({
-              ...previous,
-              [lane.id]: {
-                timeInSeconds,
-                payload,
-                updatedAt: Date.now(),
-              },
-            }));
-          })
-          .catch(() => {
-            // Keep the last stable shared detection for this lane if a fresh request is slow.
-          })
-          .finally(() => {
-            laneRequestInFlightRef.current[lane.id] = false;
-          });
+        requestLaneDetection(lane.id, camera, videoElement.currentTime ?? 0);
       }
     };
 
@@ -110,7 +157,7 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [lanes, selectedCameras]);
+  }, [lanes, requestLaneDetection, selectedCameras]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {

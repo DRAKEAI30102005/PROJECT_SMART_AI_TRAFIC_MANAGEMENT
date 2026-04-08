@@ -484,6 +484,7 @@ export function LaneCard({
           loop
           muted
           playsInline
+          preload="auto"
         />
       </div>
     );
@@ -506,6 +507,7 @@ export function LaneCard({
           loop
           muted
           playsInline
+          preload="auto"
         />
 
         <div className="pointer-events-none absolute left-0 right-0 top-2 z-10 flex justify-center">
