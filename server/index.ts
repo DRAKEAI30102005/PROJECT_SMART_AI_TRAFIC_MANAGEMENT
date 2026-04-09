@@ -39,6 +39,7 @@ type WorkerEntry = {
   process: ChildProcessWithoutNullStreams;
   readyPromise: Promise<void>;
   busyCount: number;
+  ready: boolean;
 };
 
 type PythonLauncher = {
@@ -274,6 +275,12 @@ function cleanupWorker(workerIndex: number, errorMessage: string) {
     }
   }
 
+  for (const [video, assignedWorkerIndex] of videoWorkerAffinity.entries()) {
+    if (assignedWorkerIndex === workerIndex) {
+      videoWorkerAffinity.delete(video);
+    }
+  }
+
   workerPool[workerIndex] = null;
 }
 
@@ -322,6 +329,10 @@ function startWorker(workerIndex: number): WorkerEntry {
         const message = JSON.parse(trimmed) as WorkerMessage;
         if ('ready' in message && message.ready) {
           if (!resolved) {
+            const worker = workerPool[workerIndex];
+            if (worker) {
+              worker.ready = true;
+            }
             resolved = true;
             clearTimeout(readyTimer);
             warmedWorkers = Math.max(warmedWorkers, workerIndex + 1);
@@ -382,6 +393,7 @@ function startWorker(workerIndex: number): WorkerEntry {
     process: workerProcess,
     readyPromise,
     busyCount: 0,
+    ready: false,
   };
 }
 
@@ -399,6 +411,48 @@ async function ensureWorkerPool(): Promise<void> {
 }
 
 function getWorkerIndexForVideo(video: string): number {
+  const readyWorkerIndexes = Array.from({ length: workerPoolSize }, (_unused, index) => index).filter(
+    (index) => workerPool[index]?.ready
+  );
+
+  if (readyWorkerIndexes.length > 0) {
+    const preferredIndex = videoWorkerAffinity.get(video);
+    if (preferredIndex !== undefined && workerPool[preferredIndex]?.ready) {
+      const preferredBusyCount = workerPool[preferredIndex]?.busyCount ?? 0;
+      let leastBusyIndex = preferredIndex;
+      let leastBusyCount = preferredBusyCount;
+
+      for (const index of readyWorkerIndexes) {
+        const busyCount = workerPool[index]?.busyCount ?? 0;
+        if (busyCount < leastBusyCount) {
+          leastBusyCount = busyCount;
+          leastBusyIndex = index;
+        }
+      }
+
+      if (preferredBusyCount <= leastBusyCount + 1) {
+        return preferredIndex;
+      }
+
+      videoWorkerAffinity.set(video, leastBusyIndex);
+      return leastBusyIndex;
+    }
+
+    let selectedIndex = readyWorkerIndexes[0];
+    let selectedBusyCount = workerPool[selectedIndex]?.busyCount ?? 0;
+
+    for (const index of readyWorkerIndexes) {
+      const busyCount = workerPool[index]?.busyCount ?? 0;
+      if (busyCount < selectedBusyCount) {
+        selectedBusyCount = busyCount;
+        selectedIndex = index;
+      }
+    }
+
+    videoWorkerAffinity.set(video, selectedIndex);
+    return selectedIndex;
+  }
+
   const preferredIndex = videoWorkerAffinity.get(video);
   if (preferredIndex !== undefined) {
     const preferredBusyCount = workerPool[preferredIndex]?.busyCount ?? 0;
