@@ -53,8 +53,8 @@ const inFlightDetections = new Map<string, Promise<DetectionResult>>();
 const pendingRequests = new Map<string, PendingRequest>();
 const workerPool: Array<WorkerEntry | null> = [];
 const workerPoolSize = Math.max(1, Number(process.env.DETECTOR_WORKERS ?? 1));
-const CACHE_BUCKETS_PER_SECOND = 3;
-const STALE_VIDEO_FALLBACK_SECONDS = 0.45;
+const CACHE_BUCKETS_PER_SECOND = 2;
+const STALE_VIDEO_FALLBACK_SECONDS = 2.0;
 const LIVE_EMPTY_FALLBACK_NOTE = 'Detector is still catching up. Keeping the live stream active with the last stable state.';
 
 let workerSequence = 0;
@@ -113,6 +113,17 @@ function parseLiveCacheKey(cacheKey: string): { video: string; timestamp: number
   }
 
   return { video, timestamp };
+}
+
+function hasVideoRequestInFlight(video: string): boolean {
+  for (const pending of pendingRequests.values()) {
+    const liveCacheKey = parseLiveCacheKey(pending.cacheKey);
+    if (liveCacheKey?.video === video) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function resolvePendingRequest(id: string, result: DetectionResult) {
@@ -433,6 +444,17 @@ app.get('/api/detections', async (req, res) => {
       });
       res.json(fallback);
       return;
+    }
+
+    if (hasVideoRequestInFlight(video)) {
+      const busyFallback = staleVideoResult(video, quantizedTimestamp);
+      if (busyFallback) {
+        void runDetector(video, quantizedTimestamp, cacheKey).catch(() => {
+          // Keep the refresh loop running in the background.
+        });
+        res.json(busyFallback);
+        return;
+      }
     }
 
     const result = await runDetector(video, quantizedTimestamp, cacheKey);
