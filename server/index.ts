@@ -1,5 +1,6 @@
 import express from 'express';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -46,16 +47,37 @@ const rootDir = path.resolve(__dirname, '..');
 const app = express();
 const distDir = path.join(rootDir, 'dist');
 const allowedVideoPattern = /^video[1-8]\.mp4$/i;
+const allowedVideos = Array.from({ length: 8 }, (_, index) => `video${index + 1}.mp4`);
 const pythonCommand = process.env.PYTHON_BIN ?? 'python3';
 const lastSuccessfulDetections = new Map<string, DetectionResult>();
 const lastDetectionByVideo = new Map<string, { timestamp: number; result: DetectionResult }>();
 const inFlightDetections = new Map<string, Promise<DetectionResult>>();
 const pendingRequests = new Map<string, PendingRequest>();
 const workerPool: Array<WorkerEntry | null> = [];
-const workerPoolSize = Math.max(1, Number(process.env.DETECTOR_WORKERS ?? 1));
-const CACHE_BUCKETS_PER_SECOND = 2;
-const STALE_VIDEO_FALLBACK_SECONDS = 2.0;
+const detectedWorkerCount = (() => {
+  const explicit = Number(process.env.DETECTOR_WORKERS ?? '');
+  if (Number.isFinite(explicit) && explicit > 0) {
+    return explicit;
+  }
+
+  const cpuCount = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length;
+  return Math.max(1, Math.min(3, cpuCount));
+})();
+const workerPoolSize = detectedWorkerCount;
+const CACHE_BUCKETS_PER_SECOND = Math.max(1, Number(process.env.DETECTION_CACHE_BUCKETS_PER_SECOND ?? 2));
+const STALE_VIDEO_FALLBACK_SECONDS = Math.max(2.5, Number(process.env.STALE_VIDEO_FALLBACK_SECONDS ?? 3.5));
+const PREFETCH_ENABLED = process.env.DETECTION_PREFETCH !== 'false';
 const LIVE_EMPTY_FALLBACK_NOTE = 'Detector is still catching up. Keeping the live stream active with the last stable state.';
+const PRIMED_FRAME_TIME_BY_VIDEO: Record<string, number> = {
+  'video1.mp4': 0.5,
+  'video2.mp4': 0.5,
+  'video3.mp4': 0.5,
+  'video4.mp4': 0.5,
+  'video5.mp4': 0.8,
+  'video6.mp4': 0.8,
+  'video7.mp4': 0.7,
+  'video8.mp4': 0.6,
+};
 
 let workerSequence = 0;
 let warmedWorkers = 0;
@@ -124,6 +146,37 @@ function hasVideoRequestInFlight(video: string): boolean {
   }
 
   return false;
+}
+
+function quantizeTimestamp(timestamp: number): number {
+  return Math.floor(timestamp * CACHE_BUCKETS_PER_SECOND) / CACHE_BUCKETS_PER_SECOND;
+}
+
+function prefetchVideoFrame(video: string, timestamp: number) {
+  if (!PREFETCH_ENABLED || !allowedVideoPattern.test(video)) {
+    return;
+  }
+
+  const normalizedTimestamp = quantizeTimestamp(timestamp);
+  const cacheKey = `${video}:${normalizedTimestamp}`;
+  if (lastSuccessfulDetections.has(cacheKey) || inFlightDetections.has(cacheKey)) {
+    return;
+  }
+
+  void runDetector(video, normalizedTimestamp, cacheKey).catch(() => {
+    // Prefetch is best-effort only.
+  });
+}
+
+async function primeDetectionCache() {
+  await Promise.all(
+    allowedVideos.map((video) => {
+      const timestamp = quantizeTimestamp(PRIMED_FRAME_TIME_BY_VIDEO[video] ?? 0.5);
+      return runDetector(video, timestamp, `${video}:${timestamp}`).catch(() => {
+        // Startup priming should not block the server if a sample frame fails.
+      });
+    })
+  );
 }
 
 function resolvePendingRequest(id: string, result: DetectionResult) {
@@ -442,6 +495,7 @@ app.get('/api/detections', async (req, res) => {
       void runDetector(video, quantizedTimestamp, cacheKey).catch(() => {
         // Keep serving the last stable result while the next frame catches up.
       });
+      prefetchVideoFrame(video, quantizedTimestamp + 1 / CACHE_BUCKETS_PER_SECOND);
       res.json(fallback);
       return;
     }
@@ -452,12 +506,14 @@ app.get('/api/detections', async (req, res) => {
         void runDetector(video, quantizedTimestamp, cacheKey).catch(() => {
           // Keep the refresh loop running in the background.
         });
+        prefetchVideoFrame(video, quantizedTimestamp + 1 / CACHE_BUCKETS_PER_SECOND);
         res.json(busyFallback);
         return;
       }
     }
 
     const result = await runDetector(video, quantizedTimestamp, cacheKey);
+    prefetchVideoFrame(video, quantizedTimestamp + 1 / CACHE_BUCKETS_PER_SECOND);
     res.json(result);
   } catch (error) {
     res.status(500).json({
@@ -546,6 +602,8 @@ app.listen(port, async () => {
   try {
     await ensureWorkerPool();
     console.log(`Detector worker pool warmed up with ${workerPoolSize} workers.`);
+    await primeDetectionCache();
+    console.log('Detector cache primed for all deployment videos.');
   } catch (error) {
     console.error(error instanceof Error ? error.message : 'Detector worker pool failed to start.');
   }
