@@ -54,9 +54,9 @@ const TRACK_SMOOTHING = 0.72;
 const MAX_MISSING_FRAMES = 12;
 const MAX_STALE_TRACK_MS = 2600;
 const EXIT_MARGIN_PERCENT = 3;
-const DETECTION_POLL_MS = 130;
-const DETECTION_FRAME_STEP_SECONDS = 0.22;
-const SHARED_DETECTION_STALE_MS = 2200;
+const DETECTION_POLL_MS = 260;
+const DETECTION_FRAME_STEP_SECONDS = 0.45;
+const SHARED_DETECTION_STALE_MS = 4200;
 
 function computeIoU(a: TrackBox, b: TrackBox): number {
   const ax2 = a.x + a.w;

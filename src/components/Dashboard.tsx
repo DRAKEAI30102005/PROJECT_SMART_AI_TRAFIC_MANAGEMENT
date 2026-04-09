@@ -55,8 +55,8 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
       const lastRequestedAt = laneLastRequestedAtRef.current[laneId] ?? 0;
       const now = Date.now();
       const frameMovedEnough =
-        lastRequestedTime === undefined || Math.abs(timeInSeconds - lastRequestedTime) >= 0.22;
-      const requestCooldownElapsed = now - lastRequestedAt >= 260;
+        lastRequestedTime === undefined || Math.abs(timeInSeconds - lastRequestedTime) >= 0.45;
+      const requestCooldownElapsed = now - lastRequestedAt >= 420;
 
       if (!frameMovedEnough && !requestCooldownElapsed) {
         return;
@@ -178,7 +178,7 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
     };
 
     runSharedDetectionPulse();
-    const interval = window.setInterval(runSharedDetectionPulse, 260);
+    const interval = window.setInterval(runSharedDetectionPulse, 420);
 
     return () => {
       cancelled = true;
