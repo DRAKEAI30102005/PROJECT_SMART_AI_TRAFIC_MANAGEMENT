@@ -54,6 +54,7 @@ const lastDetectionByVideo = new Map<string, { timestamp: number; result: Detect
 const inFlightDetections = new Map<string, Promise<DetectionResult>>();
 const pendingRequests = new Map<string, PendingRequest>();
 const workerPool: Array<WorkerEntry | null> = [];
+const videoWorkerAffinity = new Map<string, number>();
 const detectedWorkerCount = (() => {
   const explicit = Number(process.env.DETECTOR_WORKERS ?? '');
   if (Number.isFinite(explicit) && explicit > 0) {
@@ -355,12 +356,26 @@ async function ensureWorkerPool(): Promise<void> {
 }
 
 function getWorkerIndexForVideo(video: string): number {
-  const match = video.match(/video(\d+)\.mp4/i);
-  if (match) {
-    const videoNumber = Number(match[1]);
-    if (Number.isFinite(videoNumber) && videoNumber > 0) {
-      return (videoNumber - 1) % workerPoolSize;
+  const preferredIndex = videoWorkerAffinity.get(video);
+  if (preferredIndex !== undefined) {
+    const preferredBusyCount = workerPool[preferredIndex]?.busyCount ?? 0;
+    let leastBusyIndex = preferredIndex;
+    let leastBusyCount = preferredBusyCount;
+
+    for (let index = 0; index < workerPoolSize; index += 1) {
+      const busyCount = workerPool[index]?.busyCount ?? 0;
+      if (busyCount < leastBusyCount) {
+        leastBusyCount = busyCount;
+        leastBusyIndex = index;
+      }
     }
+
+    if (preferredBusyCount <= leastBusyCount + 1) {
+      return preferredIndex;
+    }
+
+    videoWorkerAffinity.set(video, leastBusyIndex);
+    return leastBusyIndex;
   }
 
   let selectedIndex = 0;
@@ -375,6 +390,7 @@ function getWorkerIndexForVideo(video: string): number {
     }
   }
 
+  videoWorkerAffinity.set(video, selectedIndex);
   return selectedIndex;
 }
 
