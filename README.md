@@ -34,7 +34,9 @@ pinned: false
 
 - `API_BASE_URL`: OpenAI-compatible LLM endpoint used by `inference.py`
 - `MODEL_NAME`: model name for the OpenAI-compatible client
-- `HF_TOKEN`: Hugging Face / API token used as the OpenAI-compatible API key
+- `API_KEY`: proxy key used as the OpenAI-compatible API key
 - `BENCHMARK_BASE_URL`: optional benchmark app URL, defaults to `http://127.0.0.1:3001`
+
+`HF_TOKEN` is still accepted as a backward-compatible fallback for older local setups, but submission environments should provide `API_KEY` so requests go through the validator's LiteLLM proxy.
 
 `inference.py` will still complete with a deterministic fallback policy if the LLM is unavailable, which keeps local smoke tests reproducible.

@@ -20,9 +20,9 @@ sys.path.insert(0, str(ROOT / "bench"))
 from graders import grade_task  # noqa: E402
 
 
-API_BASE_URL = os.environ.get("API_BASE_URL", "http://127.0.0.1:3001").rstrip("/")
+API_BASE_URL = os.environ.get("API_BASE_URL", "").rstrip("/")
 MODEL_NAME = os.environ.get("MODEL_NAME", "")
-HF_TOKEN = os.environ.get("HF_TOKEN", "")
+API_KEY = os.environ.get("API_KEY", os.environ.get("HF_TOKEN", ""))
 BENCHMARK_BASE_URL = os.environ.get("BENCHMARK_BASE_URL", "http://127.0.0.1:3001").rstrip("/")
 BENCHMARK_FALLBACK_URLS = [
     BENCHMARK_BASE_URL,
@@ -42,10 +42,10 @@ def emit(tag: str, payload: dict[str, Any]) -> None:
 
 
 def build_client() -> OpenAI | None:
-    if OpenAI is None or not API_BASE_URL or not MODEL_NAME or not HF_TOKEN:
+    if OpenAI is None or not API_BASE_URL or not MODEL_NAME or not API_KEY:
         return None
     try:
-        return OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+        return OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     except Exception:
         return None
 
