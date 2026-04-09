@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import readline from 'node:readline';
 import { getBenchmarkState, listBenchmarkTasks, resetBenchmark, stepBenchmark } from './benchmark';
 
@@ -41,6 +41,11 @@ type WorkerEntry = {
   busyCount: number;
 };
 
+type PythonLauncher = {
+  command: string;
+  args: string[];
+};
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
@@ -48,7 +53,6 @@ const app = express();
 const distDir = path.join(rootDir, 'dist');
 const allowedVideoPattern = /^video[1-8]\.mp4$/i;
 const allowedVideos = Array.from({ length: 8 }, (_, index) => `video${index + 1}.mp4`);
-const pythonCommand = process.env.PYTHON_BIN ?? 'python3';
 const lastSuccessfulDetections = new Map<string, DetectionResult>();
 const lastDetectionByVideo = new Map<string, { timestamp: number; result: DetectionResult }>();
 const inFlightDetections = new Map<string, Promise<DetectionResult>>();
@@ -83,6 +87,43 @@ const PRIMED_FRAME_TIME_BY_VIDEO: Record<string, number> = {
 
 let workerSequence = 0;
 let warmedWorkers = 0;
+
+function resolvePythonLauncher(): PythonLauncher {
+  const configured = process.env.PYTHON_BIN?.trim();
+  const candidates: PythonLauncher[] = [];
+
+  if (configured) {
+    candidates.push({ command: configured, args: [] });
+  }
+
+  candidates.push({ command: 'python3', args: [] });
+  candidates.push({ command: 'python', args: [] });
+
+  if (process.platform === 'win32') {
+    candidates.push({ command: 'py', args: ['-3'] });
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const probe = spawnSync(candidate.command, [...candidate.args, '--version'], {
+        cwd: rootDir,
+        encoding: 'utf8',
+        timeout: 10000,
+      });
+      if (probe.status === 0) {
+        return candidate;
+      }
+    } catch {
+      // Try the next candidate.
+    }
+  }
+
+  throw new Error(
+    'No working Python interpreter was found. Set PYTHON_BIN to a valid Python executable before starting the detector server.'
+  );
+}
+
+const pythonLauncher = resolvePythonLauncher();
 
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
@@ -254,7 +295,9 @@ function handleWorkerMessage(message: WorkerMessage) {
 }
 
 function startWorker(workerIndex: number): WorkerEntry {
-  const workerProcess = spawn(pythonCommand, ['-u', 'ml/scripts/detect_worker.py'], { cwd: rootDir });
+  const workerProcess = spawn(pythonLauncher.command, [...pythonLauncher.args, '-u', 'ml/scripts/detect_worker.py'], {
+    cwd: rootDir,
+  });
 
   const readyPromise = new Promise<void>((resolve, reject) => {
     let resolved = false;
