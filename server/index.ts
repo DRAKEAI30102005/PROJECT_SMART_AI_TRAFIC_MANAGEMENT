@@ -66,7 +66,8 @@ const detectedWorkerCount = (() => {
 const workerPoolSize = detectedWorkerCount;
 const CACHE_BUCKETS_PER_SECOND = Math.max(1, Number(process.env.DETECTION_CACHE_BUCKETS_PER_SECOND ?? 2));
 const STALE_VIDEO_FALLBACK_SECONDS = Math.max(2.5, Number(process.env.STALE_VIDEO_FALLBACK_SECONDS ?? 3.5));
-const PREFETCH_ENABLED = process.env.DETECTION_PREFETCH !== 'false';
+const PREFETCH_ENABLED = process.env.DETECTION_PREFETCH === 'true';
+const PRIME_CACHE_ON_STARTUP = process.env.DETECTION_PRIME_CACHE === 'true';
 const LIVE_EMPTY_FALLBACK_NOTE = 'Detector is still catching up. Keeping the live stream active with the last stable state.';
 const PRIMED_FRAME_TIME_BY_VIDEO: Record<string, number> = {
   'video1.mp4': 0.5,
@@ -602,8 +603,10 @@ app.listen(port, async () => {
   try {
     await ensureWorkerPool();
     console.log(`Detector worker pool warmed up with ${workerPoolSize} workers.`);
-    await primeDetectionCache();
-    console.log('Detector cache primed for all deployment videos.');
+    if (PRIME_CACHE_ON_STARTUP) {
+      await primeDetectionCache();
+      console.log('Detector cache primed for all deployment videos.');
+    }
   } catch (error) {
     console.error(error instanceof Error ? error.message : 'Detector worker pool failed to start.');
   }
