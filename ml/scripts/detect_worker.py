@@ -32,15 +32,15 @@ def main() -> None:
     weights = resolve_weights(root_dir)
     model = YOLO(weights)
     uses_custom_weights = str(weights).endswith("best.pt")
-    warmup_frame = np.zeros((288, 448, 3), dtype=np.uint8)
+    warmup_frame = np.zeros((256, 384, 3), dtype=np.uint8)
     model.predict(
         warmup_frame,
-        imgsz=448,
+        imgsz=320,
         conf=0.3,
         iou=0.5,
         agnostic_nms=False,
         verbose=False,
-        max_det=8,
+        max_det=6,
     )
 
     emit({"ready": True, "weights": weights, "custom": uses_custom_weights})

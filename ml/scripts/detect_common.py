@@ -20,6 +20,7 @@ except ImportError as exc:
 
 TARGET_CLASSES = {"car", "motorcycle", "bus", "truck", "ambulance"}
 FRAME_CACHE: dict[str, dict[str, Any]] = {}
+MIN_MOTION_AREA = 0.0018
 
 try:
     cv2.setNumThreads(1)
@@ -65,6 +66,7 @@ def get_capture(video_path: Path):
         "capture": capture,
         "fps": fps,
         "last_frame_index": -1,
+        "subtractor": cv2.createBackgroundSubtractorMOG2(history=180, varThreshold=32, detectShadows=False),
     }
     FRAME_CACHE[cache_key] = cached
     return cached
@@ -90,19 +92,59 @@ def extract_frame(video_path: Path, timestamp: float):
         raise RuntimeError(f"Could not read frame at {timestamp:.2f}s from {video_path}")
 
     height, width = frame.shape[:2]
-    return frame, width, height
+    return frame, width, height, cached
+
+
+def motion_detections(frame, width: int, height: int, cached: dict[str, Any], video_path: Path):
+    subtractor = cached["subtractor"]
+    mask = subtractor.apply(frame)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_DILATE, kernel)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    detections = []
+    min_area = width * height * MIN_MOTION_AREA
+
+    for index, contour in enumerate(sorted(contours, key=cv2.contourArea, reverse=True)):
+        area = cv2.contourArea(contour)
+        if area < min_area:
+            continue
+
+        x, y, w, h = cv2.boundingRect(contour)
+        aspect_ratio = w / max(h, 1)
+        if w < 18 or h < 18 or aspect_ratio > 6.5 or aspect_ratio < 0.25:
+            continue
+
+        label = normalize_label("car", video_path)
+        detections.append(
+            {
+                "label": label,
+                "confidence": round(min(0.72, 0.42 + area / (width * height)), 3),
+                "x": round(clamp((x / width) * 100, 0, 100), 2),
+                "y": round(clamp((y / height) * 100, 0, 100), 2),
+                "w": round(clamp((w / width) * 100, 0, 100), 2),
+                "h": round(clamp((h / height) * 100, 0, 100), 2),
+                "id": f"motion-{index}",
+            }
+        )
+
+        if len(detections) >= 8:
+            break
+
+    return detections
 
 
 def run_detection(model: YOLO, video_path: Path, timestamp: float, uses_custom_weights: bool):
-    frame, width, height = extract_frame(video_path, timestamp)
+    frame, width, height, cached = extract_frame(video_path, timestamp)
     results = model.predict(
         frame,
-        imgsz=448 if uses_custom_weights else 384,
-        conf=0.28 if uses_custom_weights else 0.32,
+        imgsz=416 if uses_custom_weights else 320,
+        conf=0.3 if uses_custom_weights else 0.34,
         iou=0.5,
         agnostic_nms=False,
         verbose=False,
-        max_det=10,
+        max_det=8,
     )
 
     detections = []
@@ -126,11 +168,14 @@ def run_detection(model: YOLO, video_path: Path, timestamp: float, uses_custom_w
                 }
             )
 
+    if not detections:
+        detections.extend(motion_detections(frame, width, height, cached, video_path))
+
     has_ambulance = any(item["label"] == "ambulance" for item in detections)
     note = (
-        "Using custom traffic weights. Ambulance detection will still need labeled ambulance examples to become reliable."
+        "Using hybrid traffic detection with custom weights and motion fallback."
         if uses_custom_weights
-        else "Using default YOLO weights. Ambulance detection needs your trained custom model."
+        else "Using hybrid traffic detection with default YOLO weights and motion fallback."
     )
 
     return {

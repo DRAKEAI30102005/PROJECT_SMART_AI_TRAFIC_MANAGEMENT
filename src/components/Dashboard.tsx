@@ -30,6 +30,8 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
   const liveLaneSnapshotsRef = React.useRef(liveLaneSnapshots);
   const videoElementsRef = React.useRef<Record<number, HTMLVideoElement | null>>({});
   const laneRequestInFlightRef = React.useRef<Record<number, boolean>>({});
+  const laneLastRequestedTimeRef = React.useRef<Record<number, number>>({});
+  const laneLastRequestedAtRef = React.useRef<Record<number, number>>({});
   const laneCameraMap = useMemo(
     () =>
       Object.fromEntries(
@@ -46,10 +48,23 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
         return;
       }
 
-      laneRequestInFlightRef.current[laneId] = true;
       const videoElement = videoElementsRef.current[laneId];
       const fallbackStartupTime = camera.videoFile === 'video8.mp4' ? 0.6 : 0.35;
       const timeInSeconds = explicitTimeInSeconds ?? videoElement?.currentTime ?? fallbackStartupTime;
+      const lastRequestedTime = laneLastRequestedTimeRef.current[laneId];
+      const lastRequestedAt = laneLastRequestedAtRef.current[laneId] ?? 0;
+      const now = Date.now();
+      const frameMovedEnough =
+        lastRequestedTime === undefined || Math.abs(timeInSeconds - lastRequestedTime) >= 0.22;
+      const requestCooldownElapsed = now - lastRequestedAt >= 260;
+
+      if (!frameMovedEnough && !requestCooldownElapsed) {
+        return;
+      }
+
+      laneRequestInFlightRef.current[laneId] = true;
+      laneLastRequestedTimeRef.current[laneId] = timeInSeconds;
+      laneLastRequestedAtRef.current[laneId] = now;
 
       void fetchDetectionFrame(camera.videoFile, timeInSeconds)
         .then((payload) => {
@@ -163,7 +178,7 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
     };
 
     runSharedDetectionPulse();
-    const interval = window.setInterval(runSharedDetectionPulse, 180);
+    const interval = window.setInterval(runSharedDetectionPulse, 260);
 
     return () => {
       cancelled = true;
