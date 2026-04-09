@@ -23,19 +23,11 @@ def emit(message: dict) -> None:
 
 def main() -> None:
     root_dir = Path(__file__).resolve().parents[2]
-<<<<<<< HEAD
-    cv2.setNumThreads(4)
-    if torch is not None:
-        torch.set_num_threads(4)
-        if hasattr(torch, "set_num_interop_threads"):
-            torch.set_num_interop_threads(2)
-=======
     cv2.setNumThreads(1)
     if torch is not None:
         torch.set_num_threads(1)
         if hasattr(torch, "set_num_interop_threads"):
             torch.set_num_interop_threads(1)
->>>>>>> b322734a1347e2191a9ab4b2b90606ad2f388097
 
     weights = resolve_weights(root_dir)
     model = YOLO(weights)
@@ -56,7 +48,7 @@ def main() -> None:
     for raw_line in sys.stdin:
         line = raw_line.strip()
         if not line:
-          continue
+            continue
 
         try:
             payload = json.loads(line)

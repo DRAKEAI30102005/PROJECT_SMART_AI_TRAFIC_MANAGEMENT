@@ -32,6 +32,7 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
   const laneRequestInFlightRef = React.useRef<Record<number, boolean>>({});
   const laneLastRequestedTimeRef = React.useRef<Record<number, number>>({});
   const laneLastRequestedAtRef = React.useRef<Record<number, number>>({});
+  const nextSharedLaneIndexRef = React.useRef(0);
   const laneCameraMap = useMemo(
     () =>
       Object.fromEntries(
@@ -55,8 +56,8 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
       const lastRequestedAt = laneLastRequestedAtRef.current[laneId] ?? 0;
       const now = Date.now();
       const frameMovedEnough =
-        lastRequestedTime === undefined || Math.abs(timeInSeconds - lastRequestedTime) >= 0.32;
-      const requestCooldownElapsed = now - lastRequestedAt >= 320;
+        lastRequestedTime === undefined || Math.abs(timeInSeconds - lastRequestedTime) >= 0.18;
+      const requestCooldownElapsed = now - lastRequestedAt >= 180;
 
       if (!frameMovedEnough && !requestCooldownElapsed) {
         return;
@@ -90,28 +91,8 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
   const registerVideoElement = useCallback(
     (laneId: number, element: HTMLVideoElement | null) => {
       videoElementsRef.current[laneId] = element;
-
-      if (!element) {
-        return;
-      }
-
-      const camera = laneCameraMap[laneId];
-      if (!camera) {
-        return;
-      }
-
-      const triggerImmediateDetection = () => {
-        requestLaneDetection(laneId, camera);
-      };
-
-      if (element.readyState >= 2) {
-        triggerImmediateDetection();
-        return;
-      }
-
-      element.addEventListener('loadeddata', triggerImmediateDetection, { once: true });
     },
-    [laneCameraMap, requestLaneDetection]
+    []
   );
 
   useEffect(() => {
@@ -143,12 +124,6 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
   }, [initialSharedDetections]);
 
   useEffect(() => {
-    for (const [laneIdText, camera] of Object.entries(laneCameraMap)) {
-      requestLaneDetection(Number(laneIdText), camera, 0.25);
-    }
-  }, [laneCameraMap, requestLaneDetection]);
-
-  useEffect(() => {
     let cancelled = false;
 
     const runSharedDetectionPulse = () => {
@@ -168,17 +143,13 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
         return;
       }
 
-      for (const { lane, camera, videoElement } of activeLanes) {
-        if (cancelled) {
-          return;
-        }
-
-        requestLaneDetection(lane.id, camera, videoElement.currentTime ?? 0);
-      }
+      const selectedLane = activeLanes[nextSharedLaneIndexRef.current % activeLanes.length];
+      nextSharedLaneIndexRef.current = (nextSharedLaneIndexRef.current + 1) % activeLanes.length;
+      requestLaneDetection(selectedLane.lane.id, selectedLane.camera, selectedLane.videoElement.currentTime ?? 0);
     };
 
     runSharedDetectionPulse();
-    const interval = window.setInterval(runSharedDetectionPulse, 320);
+    const interval = window.setInterval(runSharedDetectionPulse, 180);
 
     return () => {
       cancelled = true;
