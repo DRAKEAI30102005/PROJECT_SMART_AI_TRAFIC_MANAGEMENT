@@ -24,7 +24,7 @@ MIN_MOTION_AREA = 0.0018
 MERGE_IOU_THRESHOLD = 0.35
 
 try:
-    cv2.setNumThreads(1)
+    cv2.setNumThreads(4)
 except AttributeError:
     pass
 
@@ -223,8 +223,8 @@ def run_detection(model: YOLO, video_path: Path, timestamp: float, uses_custom_w
         width,
         height,
         video_path,
-        imgsz=352 if uses_custom_weights else 320,
-        conf=0.25 if uses_custom_weights else 0.28,
+        imgsz=480 if uses_custom_weights else 448,
+        conf=0.15 if uses_custom_weights else 0.18,
         max_det=14,
     )
     detections = primary_detections
@@ -236,8 +236,8 @@ def run_detection(model: YOLO, video_path: Path, timestamp: float, uses_custom_w
             width,
             height,
             video_path,
-            imgsz=512 if uses_custom_weights else 448,
-            conf=0.18 if uses_custom_weights else 0.22,
+            imgsz=640 if uses_custom_weights else 640,
+            conf=0.1 if uses_custom_weights else 0.12,
             max_det=18,
         )
         detections = merge_new_detections(detections, secondary_detections)

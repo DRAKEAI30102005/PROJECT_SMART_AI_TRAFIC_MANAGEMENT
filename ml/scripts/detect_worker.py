@@ -23,11 +23,11 @@ def emit(message: dict) -> None:
 
 def main() -> None:
     root_dir = Path(__file__).resolve().parents[2]
-    cv2.setNumThreads(1)
+    cv2.setNumThreads(4)
     if torch is not None:
-        torch.set_num_threads(1)
+        torch.set_num_threads(4)
         if hasattr(torch, "set_num_interop_threads"):
-            torch.set_num_interop_threads(1)
+            torch.set_num_interop_threads(2)
 
     weights = resolve_weights(root_dir)
     model = YOLO(weights)
