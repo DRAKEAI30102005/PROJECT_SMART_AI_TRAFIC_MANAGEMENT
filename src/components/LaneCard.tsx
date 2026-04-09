@@ -54,8 +54,13 @@ const TRACK_SMOOTHING = 0.72;
 const MAX_MISSING_FRAMES = 12;
 const MAX_STALE_TRACK_MS = 2600;
 const EXIT_MARGIN_PERCENT = 3;
+<<<<<<< HEAD
 const DETECTION_POLL_MS = 90;
 const DETECTION_FRAME_STEP_SECONDS = 0.12;
+=======
+const DETECTION_POLL_MS = 180;
+const DETECTION_FRAME_STEP_SECONDS = 0.32;
+>>>>>>> b322734a1347e2191a9ab4b2b90606ad2f388097
 const SHARED_DETECTION_STALE_MS = 4200;
 const SHARED_DETECTION_TRUST_MS = 900;
 const MAX_VIDEO_RECOVERY_ATTEMPTS = 3;
@@ -310,7 +315,11 @@ export function LaneCard({
     );
 
     setHasAmbulanceInFrame(payload.hasAmbulance);
+<<<<<<< HEAD
     setModelNote(payload.note || (payload.stale ? 'Analyzing traffic flow...' : 'Analysis complete.'));
+=======
+    setModelNote(payload.stale ? 'Analyzing traffic flow...' : 'Analyzing traffic flow...');
+>>>>>>> b322734a1347e2191a9ab4b2b90606ad2f388097
     setError(null);
     setIsLoading(false);
   };
