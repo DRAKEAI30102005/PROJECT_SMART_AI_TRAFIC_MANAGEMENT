@@ -21,6 +21,7 @@ except ImportError as exc:
 TARGET_CLASSES = {"car", "motorcycle", "bus", "truck", "ambulance"}
 FRAME_CACHE: dict[str, dict[str, Any]] = {}
 MIN_MOTION_AREA = 0.0018
+MERGE_IOU_THRESHOLD = 0.35
 
 try:
     cv2.setNumThreads(1)
@@ -135,16 +136,43 @@ def motion_detections(frame, width: int, height: int, cached: dict[str, Any], vi
     return detections
 
 
-def run_detection(model: YOLO, video_path: Path, timestamp: float, uses_custom_weights: bool):
-    frame, width, height, cached = extract_frame(video_path, timestamp)
+def compute_iou(box_a: dict[str, Any], box_b: dict[str, Any]) -> float:
+    ax1, ay1 = box_a["x"], box_a["y"]
+    ax2, ay2 = ax1 + box_a["w"], ay1 + box_a["h"]
+    bx1, by1 = box_b["x"], box_b["y"]
+    bx2, by2 = bx1 + box_b["w"], by1 + box_b["h"]
+
+    intersection_w = max(0.0, min(ax2, bx2) - max(ax1, bx1))
+    intersection_h = max(0.0, min(ay2, by2) - max(ay1, by1))
+    intersection = intersection_w * intersection_h
+    if intersection <= 0:
+        return 0.0
+
+    area_a = max(box_a["w"], 0.0) * max(box_a["h"], 0.0)
+    area_b = max(box_b["w"], 0.0) * max(box_b["h"], 0.0)
+    union = area_a + area_b - intersection
+    return intersection / union if union > 0 else 0.0
+
+
+def predict_detections(
+    model: YOLO,
+    frame,
+    width: int,
+    height: int,
+    video_path: Path,
+    *,
+    imgsz: int,
+    conf: float,
+    max_det: int,
+):
     results = model.predict(
         frame,
-        imgsz=352 if uses_custom_weights else 288,
-        conf=0.28 if uses_custom_weights else 0.3,
+        imgsz=imgsz,
+        conf=conf,
         iou=0.5,
         agnostic_nms=False,
         verbose=False,
-        max_det=8,
+        max_det=max_det,
     )
 
     detections = []
@@ -164,12 +192,55 @@ def run_detection(model: YOLO, video_path: Path, timestamp: float, uses_custom_w
                     "y": round(clamp((y1 / height) * 100, 0, 100), 2),
                     "w": round(clamp(((x2 - x1) / width) * 100, 0, 100), 2),
                     "h": round(clamp(((y2 - y1) / height) * 100, 0, 100), 2),
-                    "id": f"{label}-{index}",
+                    "id": f"{label}-{imgsz}-{index}",
                 }
             )
 
-    if not detections:
-        detections.extend(motion_detections(frame, width, height, cached, video_path))
+    return detections
+
+
+def merge_new_detections(existing: list[dict[str, Any]], candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged = existing[:]
+    for candidate in candidates:
+      overlaps_existing = any(
+          candidate["label"] == detection["label"] and compute_iou(candidate, detection) >= MERGE_IOU_THRESHOLD
+          for detection in merged
+      )
+      if not overlaps_existing:
+          merged.append(candidate)
+    return merged
+
+
+def run_detection(model: YOLO, video_path: Path, timestamp: float, uses_custom_weights: bool):
+    frame, width, height, cached = extract_frame(video_path, timestamp)
+    primary_detections = predict_detections(
+        model,
+        frame,
+        width,
+        height,
+        video_path,
+        imgsz=352 if uses_custom_weights else 320,
+        conf=0.25 if uses_custom_weights else 0.28,
+        max_det=14,
+    )
+    detections = primary_detections
+
+    if len(primary_detections) <= 4:
+        secondary_detections = predict_detections(
+            model,
+            frame,
+            width,
+            height,
+            video_path,
+            imgsz=512 if uses_custom_weights else 448,
+            conf=0.18 if uses_custom_weights else 0.22,
+            max_det=18,
+        )
+        detections = merge_new_detections(detections, secondary_detections)
+
+    motion_candidates = motion_detections(frame, width, height, cached, video_path)
+    if motion_candidates:
+        detections = merge_new_detections(detections, motion_candidates)
 
     has_ambulance = any(item["label"] == "ambulance" for item in detections)
     note = (
