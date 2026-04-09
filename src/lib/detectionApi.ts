@@ -23,6 +23,12 @@ export interface SharedDetectionFrame {
   updatedAt: number;
 }
 
+interface DetectionHealthResponse {
+  ok: boolean;
+  detectorReady?: boolean;
+  warmedWorkers?: number;
+}
+
 const DETECTION_REQUEST_TIMEOUT_MS = 8000;
 
 const API_ROOT_CANDIDATES =
@@ -38,6 +44,7 @@ const API_ROOT_CANDIDATES =
     : ['http://localhost:3001', ''];
 
 let healthCheckPromise: Promise<string | null> | null = null;
+let lastKnownApiRoot: string | null = null;
 
 function apiUrl(root: string, endpoint: string): string {
   if (!root) {
@@ -55,12 +62,20 @@ async function ensureDetectionApiReady(): Promise<string | null> {
         try {
           const apiHealthResponse = await fetch(apiUrl(root, '/health'));
           if (apiHealthResponse.ok) {
-            return root;
+            const payload = (await apiHealthResponse.json()) as DetectionHealthResponse;
+            if (payload.ok && payload.detectorReady) {
+              lastKnownApiRoot = root;
+              return root;
+            }
           }
 
           const rootHealthResponse = await fetch(root ? `${root}/health` : '/health');
           if (rootHealthResponse.ok) {
-            return root;
+            const payload = (await rootHealthResponse.json()) as DetectionHealthResponse;
+            if (payload.ok && payload.detectorReady) {
+              lastKnownApiRoot = root;
+              return root;
+            }
           }
         } catch {
           // Try the next candidate.
@@ -113,7 +128,10 @@ function parseDetectionPayload(text: string): DetectionApiResponse {
 export async function fetchDetectionFrame(videoFile: string, timeInSeconds: number): Promise<DetectionApiResponse> {
   const apiRoot = await ensureDetectionApiReady();
   if (apiRoot === null) {
-    throw new Error('Detection API is not reachable yet on the deployed app.');
+    if (lastKnownApiRoot) {
+      healthCheckPromise = null;
+    }
+    throw new Error('Detector is still warming up. Please wait a moment.');
   }
 
   const controller = new AbortController();
@@ -130,7 +148,8 @@ export async function fetchDetectionFrame(videoFile: string, timeInSeconds: numb
   } catch (error) {
     window.clearTimeout(timeoutId);
     if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new Error('Detector is still warming up. Retrying immediately.');
+      healthCheckPromise = null;
+      throw new Error('Detector is still warming up. Please wait a moment.');
     }
     throw error;
   }
@@ -150,6 +169,10 @@ export async function fetchDetectionFrame(videoFile: string, timeInSeconds: numb
         };
 
     if (!response.ok) {
+      if ((payload.details || payload.error || '').toLowerCase().includes('warm')) {
+        healthCheckPromise = null;
+        throw new Error('Detector is still warming up. Please wait a moment.');
+      }
       throw new Error(payload.details || payload.error || 'Detection request failed.');
     }
 
