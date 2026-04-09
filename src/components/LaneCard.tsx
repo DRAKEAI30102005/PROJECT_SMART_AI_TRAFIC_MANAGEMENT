@@ -57,6 +57,8 @@ const EXIT_MARGIN_PERCENT = 3;
 const DETECTION_POLL_MS = 260;
 const DETECTION_FRAME_STEP_SECONDS = 0.45;
 const SHARED_DETECTION_STALE_MS = 4200;
+const SHARED_DETECTION_TRUST_MS = 1600;
+const MAX_VIDEO_RECOVERY_ATTEMPTS = 3;
 
 function computeIoU(a: TrackBox, b: TrackBox): number {
   const ax2 = a.x + a.w;
@@ -269,6 +271,8 @@ export function LaneCard({
   const pollingTimeoutRef = useRef<number | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const lastFetchedTimeRef = useRef<number | null>(null);
+  const videoRecoveryAttemptsRef = useRef(0);
+  const lastSuccessfulDetectionAtRef = useRef(0);
   const trackCounterRef = useRef(0);
   const lastSnapshotSignatureRef = useRef('');
   const lastSnapshotEmitAtRef = useRef(0);
@@ -283,6 +287,11 @@ export function LaneCard({
     sharedDetectionEnabled &&
     sharedDetection !== null &&
     Date.now() - sharedDetection.updatedAt <= SHARED_DETECTION_STALE_MS;
+  const shouldTrustSharedDetection =
+    sharedDetectionActive &&
+    sharedDetection !== null &&
+    !sharedDetection.payload.stale &&
+    Date.now() - sharedDetection.updatedAt <= SHARED_DETECTION_TRUST_MS;
 
   useEffect(() => {
     trackedDetectionsRef.current = trackedDetections;
@@ -295,6 +304,7 @@ export function LaneCard({
     }));
 
     lastFetchedTimeRef.current = timeInSeconds;
+    lastSuccessfulDetectionAtRef.current = Date.now();
     setTrackedDetections((previousTracks) =>
       mergeDetectionsIntoTracks(previousTracks, mappedDetections, trackCounterRef, timeInSeconds, performance.now())
     );
@@ -311,9 +321,53 @@ export function LaneCard({
       return;
     }
 
-    void video.play().catch(() => {
-      // Ignore autoplay/play interruption issues from the browser.
-    });
+    const ensurePlayback = () => {
+      if (video.readyState >= 2 && video.paused && !video.ended) {
+        void video.play().catch(() => {
+          // Ignore autoplay/play interruption issues from the browser.
+        });
+      }
+    };
+
+    const recoverVideo = () => {
+      if (videoRecoveryAttemptsRef.current >= MAX_VIDEO_RECOVERY_ATTEMPTS) {
+        return;
+      }
+
+      videoRecoveryAttemptsRef.current += 1;
+      const resumeTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+      video.load();
+
+      const restorePlayback = () => {
+        video.currentTime = resumeTime;
+        ensurePlayback();
+      };
+
+      if (video.readyState >= 2) {
+        restorePlayback();
+      } else {
+        video.addEventListener('loadeddata', restorePlayback, { once: true });
+      }
+    };
+
+    const resetRecoveryCounter = () => {
+      videoRecoveryAttemptsRef.current = 0;
+    };
+
+    ensurePlayback();
+    video.addEventListener('playing', resetRecoveryCounter);
+    video.addEventListener('stalled', recoverVideo);
+    video.addEventListener('waiting', ensurePlayback);
+    video.addEventListener('pause', ensurePlayback);
+    video.addEventListener('error', recoverVideo);
+
+    return () => {
+      video.removeEventListener('playing', resetRecoveryCounter);
+      video.removeEventListener('stalled', recoverVideo);
+      video.removeEventListener('waiting', ensurePlayback);
+      video.removeEventListener('pause', ensurePlayback);
+      video.removeEventListener('error', recoverVideo);
+    };
   }, []);
 
   useEffect(() => {
@@ -401,7 +455,7 @@ export function LaneCard({
   }, [backgroundMode, sharedDetection, sharedDetectionActive]);
 
   useEffect(() => {
-    if (backgroundMode || sharedDetectionActive) {
+    if (backgroundMode || shouldTrustSharedDetection) {
       return;
     }
 
@@ -436,7 +490,7 @@ export function LaneCard({
           setError(null);
           setModelNote('Analyzing traffic flow...');
         } else {
-          setError(null);
+          setError(message);
           setModelNote('Analyzing traffic flow...');
         }
       } finally {
@@ -455,10 +509,11 @@ export function LaneCard({
 
       const currentTime = videoRef.current?.currentTime ?? 0;
       const lastFetchedTime = lastFetchedTimeRef.current;
+      const hasGoneTooLongWithoutSuccess = Date.now() - lastSuccessfulDetectionAtRef.current > 5000;
       const frameMovedEnough =
         lastFetchedTime === null || Math.abs(currentTime - lastFetchedTime) >= DETECTION_FRAME_STEP_SECONDS;
 
-      if (frameMovedEnough) {
+      if (frameMovedEnough || hasGoneTooLongWithoutSuccess) {
         await fetchDetections(currentTime);
       }
 
@@ -473,7 +528,7 @@ export function LaneCard({
         window.clearTimeout(pollingTimeoutRef.current);
       }
     };
-  }, [backgroundMode, sharedDetectionActive, videoFile]);
+  }, [backgroundMode, shouldTrustSharedDetection, videoFile]);
 
   const visibleVehicleCount = trackedDetections.filter((track) => track.missingFrames === 0).length;
   void onTriggerAmbulance;
