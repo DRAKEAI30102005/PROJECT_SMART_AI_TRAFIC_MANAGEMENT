@@ -79,6 +79,9 @@ def extract_frame(video_path: Path, timestamp: float):
     fps = cached["fps"]
     frame_index = max(int(timestamp * fps), 0)
 
+    total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+    if total_frames > 0:
+        frame_index = frame_index % total_frames
     if frame_index != cached["last_frame_index"] + 1:
         capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
 
@@ -202,12 +205,12 @@ def predict_detections(
 def merge_new_detections(existing: list[dict[str, Any]], candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
     merged = existing[:]
     for candidate in candidates:
-      overlaps_existing = any(
-          candidate["label"] == detection["label"] and compute_iou(candidate, detection) >= MERGE_IOU_THRESHOLD
-          for detection in merged
-      )
-      if not overlaps_existing:
-          merged.append(candidate)
+        overlaps_existing = any(
+            candidate["label"] == detection["label"] and compute_iou(candidate, detection) >= MERGE_IOU_THRESHOLD
+            for detection in merged
+        )
+        if not overlaps_existing:
+            merged.append(candidate)
     return merged
 
 
@@ -219,8 +222,8 @@ def run_detection(model: YOLO, video_path: Path, timestamp: float, uses_custom_w
         width,
         height,
         video_path,
-        imgsz=352 if uses_custom_weights else 320,
-        conf=0.25 if uses_custom_weights else 0.28,
+        imgsz=384 if uses_custom_weights else 352,
+        conf=0.2 if uses_custom_weights else 0.22,
         max_det=14,
     )
     detections = primary_detections
@@ -232,8 +235,8 @@ def run_detection(model: YOLO, video_path: Path, timestamp: float, uses_custom_w
             width,
             height,
             video_path,
-            imgsz=512 if uses_custom_weights else 448,
-            conf=0.18 if uses_custom_weights else 0.22,
+            imgsz=512 if uses_custom_weights else 512,
+            conf=0.14 if uses_custom_weights else 0.16,
             max_det=18,
         )
         detections = merge_new_detections(detections, secondary_detections)

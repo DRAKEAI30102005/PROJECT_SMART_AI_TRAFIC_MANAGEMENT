@@ -55,9 +55,9 @@ const MAX_MISSING_FRAMES = 12;
 const MAX_STALE_TRACK_MS = 2600;
 const EXIT_MARGIN_PERCENT = 3;
 const DETECTION_POLL_MS = 180;
-const DETECTION_FRAME_STEP_SECONDS = 0.32;
+const DETECTION_FRAME_STEP_SECONDS = 0.18;
 const SHARED_DETECTION_STALE_MS = 4200;
-const SHARED_DETECTION_TRUST_MS = 900;
+const SHARED_DETECTION_TRUST_MS = 4200;
 const MAX_VIDEO_RECOVERY_ATTEMPTS = 3;
 
 function computeIoU(a: TrackBox, b: TrackBox): number {
@@ -310,7 +310,7 @@ export function LaneCard({
     );
 
     setHasAmbulanceInFrame(payload.hasAmbulance);
-    setModelNote(payload.stale ? 'Analyzing traffic flow...' : 'Analyzing traffic flow...');
+    setModelNote(payload.note || (payload.stale ? 'Analyzing traffic flow...' : 'Analysis complete.'));
     setError(null);
     setIsLoading(false);
   };

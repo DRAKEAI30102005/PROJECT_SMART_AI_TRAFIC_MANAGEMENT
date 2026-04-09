@@ -48,7 +48,7 @@ def main() -> None:
     for raw_line in sys.stdin:
         line = raw_line.strip()
         if not line:
-          continue
+            continue
 
         try:
             payload = json.loads(line)
