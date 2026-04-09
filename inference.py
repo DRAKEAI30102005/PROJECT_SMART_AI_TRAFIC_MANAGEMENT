@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any
 
 import requests
-from openai import OpenAI
+
+try:
+    from openai import OpenAI
+except Exception:  # pragma: no cover - submission env fallback
+    OpenAI = None  # type: ignore[assignment]
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "bench"))
@@ -38,9 +42,12 @@ def emit(tag: str, payload: dict[str, Any]) -> None:
 
 
 def build_client() -> OpenAI | None:
-    if not API_BASE_URL or not MODEL_NAME or not HF_TOKEN:
+    if OpenAI is None or not API_BASE_URL or not MODEL_NAME or not HF_TOKEN:
         return None
-    return OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+    try:
+        return OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+    except Exception:
+        return None
 
 
 def deterministic_lane(state: dict[str, Any]) -> int:
@@ -222,4 +229,14 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except BaseException as exc:  # pragma: no cover - final submission safety net
+        emit(
+            "END",
+            {
+                "average_score": 0.0,
+                "scores": [],
+                "error": f"fatal: {exc}",
+            },
+        )
