@@ -64,10 +64,10 @@ const detectedWorkerCount = (() => {
   return Math.max(1, Math.min(3, cpuCount));
 })();
 const workerPoolSize = detectedWorkerCount;
-const CACHE_BUCKETS_PER_SECOND = Math.max(1, Number(process.env.DETECTION_CACHE_BUCKETS_PER_SECOND ?? 2));
+const CACHE_BUCKETS_PER_SECOND = Math.max(1, Number(process.env.DETECTION_CACHE_BUCKETS_PER_SECOND ?? 3));
 const STALE_VIDEO_FALLBACK_SECONDS = Math.max(2.5, Number(process.env.STALE_VIDEO_FALLBACK_SECONDS ?? 3.5));
 const PREFETCH_ENABLED = process.env.DETECTION_PREFETCH === 'true';
-const PRIME_CACHE_ON_STARTUP = process.env.DETECTION_PRIME_CACHE === 'true';
+const PRIME_CACHE_ON_STARTUP = process.env.DETECTION_PRIME_CACHE !== 'false';
 const LIVE_EMPTY_FALLBACK_NOTE = 'Detector is still catching up. Keeping the live stream active with the last stable state.';
 const PRIMED_FRAME_TIME_BY_VIDEO: Record<string, number> = {
   'video1.mp4': 0.5,
@@ -598,8 +598,7 @@ if (fs.existsSync(distDir)) {
 
 const port = Number(process.env.PORT ?? 3001);
 
-app.listen(port, async () => {
-  console.log(`Detection API listening on http://localhost:${port}`);
+async function startServer() {
   try {
     await ensureWorkerPool();
     console.log(`Detector worker pool warmed up with ${workerPoolSize} workers.`);
@@ -610,4 +609,10 @@ app.listen(port, async () => {
   } catch (error) {
     console.error(error instanceof Error ? error.message : 'Detector worker pool failed to start.');
   }
-});
+
+  app.listen(port, () => {
+    console.log(`Detection API listening on http://localhost:${port}`);
+  });
+}
+
+void startServer();
