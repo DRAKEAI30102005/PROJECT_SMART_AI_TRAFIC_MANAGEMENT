@@ -79,6 +79,10 @@ def extract_frame(video_path: Path, timestamp: float):
     fps = cached["fps"]
     frame_index = max(int(timestamp * fps), 0)
 
+    total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+    if total_frames > 0:
+        frame_index = frame_index % total_frames
+
     if frame_index != cached["last_frame_index"] + 1:
         capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
 

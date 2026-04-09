@@ -310,7 +310,7 @@ export function LaneCard({
     );
 
     setHasAmbulanceInFrame(payload.hasAmbulance);
-    setModelNote(payload.stale ? 'Analyzing traffic flow...' : 'Analyzing traffic flow...');
+    setModelNote(payload.note || (payload.stale ? 'Analyzing traffic flow...' : 'Analysis complete.'));
     setError(null);
     setIsLoading(false);
   };
