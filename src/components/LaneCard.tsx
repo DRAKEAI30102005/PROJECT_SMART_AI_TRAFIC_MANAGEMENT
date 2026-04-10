@@ -400,7 +400,19 @@ export function LaneCard({
       return;
     }
 
-    video.pause();
+    if (video.readyState >= 2) {
+      video.pause();
+      return;
+    }
+
+    const pauseWhenReady = () => {
+      video.pause();
+    };
+
+    video.addEventListener('loadeddata', pauseWhenReady, { once: true });
+    return () => {
+      video.removeEventListener('loadeddata', pauseWhenReady);
+    };
   }, [backgroundMode, lane.light]);
 
   useEffect(() => {
@@ -480,7 +492,7 @@ export function LaneCard({
   }, [backgroundMode, sharedDetection, sharedDetectionActive]);
 
   useEffect(() => {
-    if (backgroundMode || shouldTrustSharedDetection) {
+    if (backgroundMode || shouldTrustSharedDetection || lane.light !== 'green') {
       return;
     }
 
@@ -558,7 +570,7 @@ export function LaneCard({
         window.clearTimeout(pollingTimeoutRef.current);
       }
     };
-  }, [backgroundMode, shouldTrustSharedDetection, videoFile]);
+  }, [backgroundMode, lane.light, shouldTrustSharedDetection, videoFile]);
 
   const visibleVehicleCount = trackedDetections.filter((track) => track.missingFrames === 0).length;
   void onTriggerAmbulance;
