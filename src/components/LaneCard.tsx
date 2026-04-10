@@ -284,15 +284,15 @@ export function LaneCard({
   const [modelNote, setModelNote] = useState('Analyzing traffic flow...');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const keepSharedDetectionsPinned = lane.light !== 'green';
   const sharedDetectionActive =
     sharedDetectionEnabled &&
     sharedDetection !== null &&
-    Date.now() - sharedDetection.updatedAt <= SHARED_DETECTION_STALE_MS;
+    (keepSharedDetectionsPinned || Date.now() - sharedDetection.updatedAt <= SHARED_DETECTION_STALE_MS);
   const shouldTrustSharedDetection =
     sharedDetectionActive &&
     sharedDetection !== null &&
-    !sharedDetection.payload.stale &&
-    Date.now() - sharedDetection.updatedAt <= SHARED_DETECTION_TRUST_MS;
+    (keepSharedDetectionsPinned || (!sharedDetection.payload.stale && Date.now() - sharedDetection.updatedAt <= SHARED_DETECTION_TRUST_MS));
 
   useEffect(() => {
     trackedDetectionsRef.current = trackedDetections;
@@ -617,6 +617,11 @@ export function LaneCard({
         </div>
 
         <div className="pointer-events-none absolute left-2 top-8 z-20 flex max-w-[82%] flex-col gap-2">
+          {lane.light === 'red' && (
+            <div className="rounded-md bg-red-950/80 px-2 py-1 text-xs text-red-100">
+              {'Traffic light is red, hence vehicles is stopped'}
+            </div>
+          )}
           {isLoading && (
             <div className="inline-flex items-center gap-2 rounded-md bg-black/65 px-2 py-1 text-xs text-cyan-200">
               <LoaderCircle size={14} className="animate-spin" />
