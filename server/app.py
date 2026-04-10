@@ -165,7 +165,7 @@ def step(payload: dict[str, Any] | None = Body(default=None)) -> dict[str, Any]:
         "reward": reward,
         "score": reward,
         "done": True,
-        "reason": "Selected lane matches benchmark expectation." if reward == 1.0 else "Selected lane differs from benchmark expectation.",
+        "reason": "Selected lane matches benchmark expectation." if reward == MAX_SCORE else "Selected lane differs from benchmark expectation.",
     }
 
 
