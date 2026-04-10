@@ -20,9 +20,9 @@ sys.path.insert(0, str(ROOT / "bench"))
 from graders import grade_task  # noqa: E402
 
 
-API_BASE_URL = os.environ.get("API_BASE_URL", "").rstrip("/")
-MODEL_NAME = os.environ.get("MODEL_NAME", "")
-API_KEY = os.environ.get("API_KEY", os.environ.get("HF_TOKEN", ""))
+API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+MODEL_NAME = os.environ.get("MODEL_NAME", os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"))
+API_KEY = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN", "")
 BENCHMARK_BASE_URL = os.environ.get("BENCHMARK_BASE_URL", "http://127.0.0.1:3001").rstrip("/")
 BENCHMARK_FALLBACK_URLS = [
     BENCHMARK_BASE_URL,
@@ -42,7 +42,7 @@ def emit(tag: str, payload: dict[str, Any]) -> None:
 
 
 def build_client() -> OpenAI | None:
-    if OpenAI is None or not API_BASE_URL or not MODEL_NAME or not API_KEY:
+    if OpenAI is None or not API_KEY:
         return None
     try:
         return OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
@@ -106,46 +106,18 @@ def llm_lane_via_client(client: OpenAI, state: dict[str, Any]) -> int:
     return parse_selected_lane_id(response.choices[0].message.content or "{}")
 
 
-def llm_lane_via_http(state: dict[str, Any]) -> int:
-    if not API_BASE_URL or not MODEL_NAME or not API_KEY:
-        raise RuntimeError("Missing LLM proxy configuration.")
-
-    response = requests.post(
-        f"{API_BASE_URL}/chat/completions",
-        headers={
-            "Authorization": f"Bearer {API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": MODEL_NAME,
-            "messages": llm_messages(state),
-            "response_format": {"type": "json_object"},
-            "temperature": 0,
-        },
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
-    response.raise_for_status()
-    payload = response.json()
-    content = payload["choices"][0]["message"]["content"]
-    return parse_selected_lane_id(content)
-
-
 def llm_lane(client: OpenAI | None, state: dict[str, Any]) -> int:
-    if client is not None:
-        try:
-            return llm_lane_via_client(client, state)
-        except Exception:
-            pass
-    return llm_lane_via_http(state)
+    if client is None:
+        raise RuntimeError("Missing OpenAI client configuration.")
+    return llm_lane_via_client(client, state)
 
 
 def choose_lane(client: OpenAI | None, state: dict[str, Any]) -> tuple[int, str]:
-    if not API_BASE_URL or not MODEL_NAME or not API_KEY:
+    if client is None:
         return deterministic_lane(state), "deterministic-fallback"
 
     try:
-        policy = "openai-client" if client is not None else "http-proxy"
-        return llm_lane(client, state), policy
+        return llm_lane(client, state), "openai-client"
     except Exception:
         return deterministic_lane(state), "deterministic-fallback"
 
