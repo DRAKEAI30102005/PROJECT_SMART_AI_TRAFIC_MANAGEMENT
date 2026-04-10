@@ -1,5 +1,7 @@
-ultralytics>=8.3.0
-opencv-python>=4.10.0
-PyYAML>=6.0.2
-openai>=1.30.0
-requests>=2.32.0
+ultralytics==8.3.39
+torch==2.5.1
+torchvision==0.20.1
+opencv-python==4.10.0.84
+PyYAML==6.0.2
+openai==1.30.5
+requests==2.32.3
