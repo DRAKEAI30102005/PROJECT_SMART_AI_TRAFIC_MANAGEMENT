@@ -272,6 +272,7 @@ export function LaneCard({
   const animationFrameRef = useRef<number | null>(null);
   const lastFetchedTimeRef = useRef<number | null>(null);
   const videoRecoveryAttemptsRef = useRef(0);
+  const playbackEnabledRef = useRef(lane.light === 'green');
   const lastSuccessfulDetectionAtRef = useRef(0);
   const trackCounterRef = useRef(0);
   const lastSnapshotSignatureRef = useRef('');
@@ -322,7 +323,7 @@ export function LaneCard({
     }
 
     const ensurePlayback = () => {
-      if (video.readyState >= 2 && video.paused && !video.ended) {
+      if (playbackEnabledRef.current && video.readyState >= 2 && video.paused && !video.ended) {
         void video.play().catch(() => {
           // Ignore autoplay/play interruption issues from the browser.
         });
@@ -340,7 +341,11 @@ export function LaneCard({
 
       const restorePlayback = () => {
         video.currentTime = resumeTime;
-        ensurePlayback();
+        if (playbackEnabledRef.current) {
+          ensurePlayback();
+        } else {
+          video.pause();
+        }
       };
 
       if (video.readyState >= 2) {
@@ -371,12 +376,32 @@ export function LaneCard({
   }, []);
 
   useEffect(() => {
+    playbackEnabledRef.current = lane.light === 'green';
     registerVideoElement?.(lane.id, videoRef.current);
 
     return () => {
       registerVideoElement?.(lane.id, null);
     };
-  }, [lane.id, registerVideoElement]);
+  }, [lane.id, lane.light, registerVideoElement]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || backgroundMode) {
+      return;
+    }
+
+    playbackEnabledRef.current = lane.light === 'green';
+    if (playbackEnabledRef.current) {
+      if (video.readyState >= 2 && video.paused && !video.ended) {
+        void video.play().catch(() => {
+          // Ignore autoplay/play interruption issues from the browser.
+        });
+      }
+      return;
+    }
+
+    video.pause();
+  }, [backgroundMode, lane.light]);
 
   useEffect(() => {
     onAmbulanceDetectionChange(hasAmbulanceInFrame);
