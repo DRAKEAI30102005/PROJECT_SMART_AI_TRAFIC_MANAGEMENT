@@ -21,6 +21,20 @@ def emit(message: dict) -> None:
     sys.stdout.flush()
 
 
+def load_model(root_dir: Path) -> tuple[YOLO, str, bool]:
+    weights = resolve_weights(root_dir)
+    uses_custom_weights = str(weights).endswith("best.pt")
+
+    try:
+        return YOLO(weights), str(weights), uses_custom_weights
+    except Exception:
+        if not uses_custom_weights:
+            raise
+
+    fallback_weights = "yolov8n.pt"
+    return YOLO(fallback_weights), fallback_weights, False
+
+
 def main() -> None:
     root_dir = Path(__file__).resolve().parents[2]
     cv2.setNumThreads(1)
@@ -29,9 +43,7 @@ def main() -> None:
         if hasattr(torch, "set_num_interop_threads"):
             torch.set_num_interop_threads(1)
 
-    weights = resolve_weights(root_dir)
-    model = YOLO(weights)
-    uses_custom_weights = str(weights).endswith("best.pt")
+    model, weights, uses_custom_weights = load_model(root_dir)
     warmup_frame = np.zeros((256, 384, 3), dtype=np.uint8)
     model.predict(
         warmup_frame,
