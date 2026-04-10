@@ -22,7 +22,6 @@ from graders import grade_task  # noqa: E402
 
 API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 MODEL_NAME = os.environ.get("MODEL_NAME", os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"))
-API_KEY = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN", "")
 BENCHMARK_BASE_URL = os.environ.get("BENCHMARK_BASE_URL", "http://127.0.0.1:3001").rstrip("/")
 BENCHMARK_FALLBACK_URLS = [
     BENCHMARK_BASE_URL,
@@ -42,10 +41,15 @@ def emit(tag: str, payload: dict[str, Any]) -> None:
 
 
 def build_client() -> OpenAI | None:
-    if OpenAI is None or not API_KEY:
+    if OpenAI is None:
         return None
     try:
-        return OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+        return OpenAI(
+            base_url=os.environ["API_BASE_URL"].rstrip("/"),
+            api_key=os.environ["API_KEY"],
+        )
+    except KeyError:
+        return None
     except Exception:
         return None
 
