@@ -11,6 +11,8 @@ from pydantic import BaseModel
 
 ROOT = Path(__file__).resolve().parents[1]
 TASKS = json.loads((ROOT / "bench" / "tasks.json").read_text(encoding="utf-8"))
+MIN_SCORE = 0.01
+MAX_SCORE = 0.99
 
 
 class LaneSnapshot(BaseModel):
@@ -154,7 +156,7 @@ def step(payload: dict[str, Any] | None = Body(default=None)) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="Provide an integer selected_lane_id.")
 
     expected_lane_id = SESSION.expected_lane_id
-    reward = 1.0 if selected_lane_id == expected_lane_id else 0.25
+    reward = MAX_SCORE if selected_lane_id == expected_lane_id else 0.25
     SESSION = SESSION.model_copy(update={"done": True, "step_count": SESSION.step_count + 1})
     return {
         "task_id": SESSION.task_id,
