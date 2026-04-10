@@ -6,10 +6,16 @@ from typing import Any
 
 
 TASKS_PATH = Path(__file__).resolve().parent / "tasks.json"
+MIN_SCORE = 0.01
+MAX_SCORE = 0.99
 
 
 def load_tasks() -> list[dict[str, Any]]:
     return json.loads(TASKS_PATH.read_text(encoding="utf-8"))
+
+
+def clamp_score(score: float) -> float:
+    return round(min(MAX_SCORE, max(MIN_SCORE, score)), 3)
 
 
 def expected_lane_from_state(state: dict[str, Any]) -> int:
@@ -31,14 +37,14 @@ def grade_task(state: dict[str, Any], selected_lane_id: int) -> float:
     chosen = by_id.get(int(selected_lane_id))
 
     if not chosen or not best_lane:
-        return 0.0
+        return MIN_SCORE
 
     if int(selected_lane_id) == expected_lane:
-        return 1.0
+        return MAX_SCORE
 
     if state.get("evaluation") == "emergency":
-        return 0.2 if int(chosen.get("detected_count", 0)) > 0 else 0.0
+        return 0.2 if int(chosen.get("detected_count", 0)) > 0 else MIN_SCORE
 
     best_count = max(1, int(best_lane.get("detected_count", 0)))
     chosen_count = int(chosen.get("detected_count", 0))
-    return max(0.0, min(1.0, round(0.15 + (chosen_count / best_count) * 0.7, 3)))
+    return clamp_score(0.15 + (chosen_count / best_count) * 0.7)
