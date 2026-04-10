@@ -29,6 +29,7 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
   const [historicalDensity, setHistoricalDensity] = useState<HistoryPoint[]>([]);
   const liveLaneSnapshotsRef = React.useRef(liveLaneSnapshots);
   const videoElementsRef = React.useRef<Record<number, HTMLVideoElement | null>>({});
+  const sharedRequestInFlightRef = React.useRef(false);
   const laneRequestInFlightRef = React.useRef<Record<number, boolean>>({});
   const laneLastRequestedTimeRef = React.useRef<Record<number, number>>({});
   const laneLastRequestedAtRef = React.useRef<Record<number, number>>({});
@@ -44,9 +45,9 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
   );
 
   const requestLaneDetection = useCallback(
-    (laneId: number, camera: CameraFeed, explicitTimeInSeconds?: number) => {
-      if (laneRequestInFlightRef.current[laneId]) {
-        return;
+    async (laneId: number, camera: CameraFeed, explicitTimeInSeconds?: number) => {
+      if (sharedRequestInFlightRef.current || laneRequestInFlightRef.current[laneId]) {
+        return false;
       }
 
       const videoElement = videoElementsRef.current[laneId];
@@ -60,15 +61,20 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
       const requestCooldownElapsed = now - lastRequestedAt >= 320;
 
       if (!frameMovedEnough && !requestCooldownElapsed) {
-        return;
+        return false;
       }
 
+      sharedRequestInFlightRef.current = true;
       laneRequestInFlightRef.current[laneId] = true;
       laneLastRequestedTimeRef.current[laneId] = timeInSeconds;
       laneLastRequestedAtRef.current[laneId] = now;
 
-      void fetchDetectionFrame(camera.videoFile, timeInSeconds)
-        .then((payload) => {
+      try {
+        const payload = await fetchDetectionFrame(camera.videoFile, timeInSeconds);
+        if (!videoElementsRef.current[laneId]) {
+          return false;
+        }
+
           setSharedDetections((previous) => ({
             ...previous,
             [laneId]: {
@@ -77,13 +83,14 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
               updatedAt: Date.now(),
             },
           }));
-        })
-        .catch(() => {
-          // Leave the existing shared detection in place if bootstrap is still warming up.
-        })
-        .finally(() => {
-          laneRequestInFlightRef.current[laneId] = false;
-        });
+        return true;
+      } catch {
+        // Leave the existing shared detection in place if bootstrap is still warming up.
+        return false;
+      } finally {
+        laneRequestInFlightRef.current[laneId] = false;
+        sharedRequestInFlightRef.current = false;
+      }
     },
     []
   );
@@ -125,9 +132,24 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
 
   useEffect(() => {
     let cancelled = false;
+    let timeoutId: number | null = null;
 
-    const runSharedDetectionPulse = () => {
+    const scheduleNextPulse = (delayMs: number) => {
       if (cancelled) {
+        return;
+      }
+      timeoutId = window.setTimeout(() => {
+        void runSharedDetectionPulse();
+      }, delayMs);
+    };
+
+    const runSharedDetectionPulse = async () => {
+      if (cancelled) {
+        return;
+      }
+
+      if (sharedRequestInFlightRef.current) {
+        scheduleNextPulse(120);
         return;
       }
 
@@ -142,20 +164,38 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
         );
 
       if (activeLanes.length === 0) {
+        scheduleNextPulse(180);
         return;
       }
 
-      const selectedLane = activeLanes[nextSharedLaneIndexRef.current % activeLanes.length];
-      nextSharedLaneIndexRef.current = (nextSharedLaneIndexRef.current + 1) % activeLanes.length;
-      requestLaneDetection(selectedLane.lane.id, selectedLane.camera, selectedLane.videoElement.currentTime ?? 0);
+      const startIndex = nextSharedLaneIndexRef.current % activeLanes.length;
+      let requested = false;
+
+      for (let offset = 0; offset < activeLanes.length; offset += 1) {
+        const laneIndex = (startIndex + offset) % activeLanes.length;
+        const selectedLane = activeLanes[laneIndex];
+        requested = await requestLaneDetection(
+          selectedLane.lane.id,
+          selectedLane.camera,
+          selectedLane.videoElement.currentTime ?? undefined
+        );
+
+        nextSharedLaneIndexRef.current = (laneIndex + 1) % activeLanes.length;
+        if (requested) {
+          break;
+        }
+      }
+
+      scheduleNextPulse(requested ? 120 : 180);
     };
 
-    runSharedDetectionPulse();
-    const interval = window.setInterval(runSharedDetectionPulse, 320);
+    void runSharedDetectionPulse();
 
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
     };
   }, [lanes, requestLaneDetection, selectedCameras]);
 
