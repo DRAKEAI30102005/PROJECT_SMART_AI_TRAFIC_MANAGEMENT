@@ -138,7 +138,7 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
           videoElement: videoElementsRef.current[lane.id],
         }))
         .filter((item): item is { lane: typeof lanes[number]; camera: CameraFeed; videoElement: HTMLVideoElement } =>
-          Boolean(item.camera && item.videoElement && item.lane.light === 'green')
+          Boolean(item.camera && item.videoElement)
         );
 
       if (activeLanes.length === 0) {
