@@ -20,6 +20,10 @@ type HistoryPoint = {
   activeAmbulances: number;
 };
 
+const DETECTION_FRAME_STEP_SECONDS = 0.18;
+const DETECTION_REQUEST_COOLDOWN_MS = 220;
+const SHARED_DETECTION_PRIORITY_STALE_MS = 1400;
+
 export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras, initialSharedDetections = {} }: DashboardProps) {
   const { lanes, stats, ambulanceAlert, triggerAmbulance, isAmbulanceOverride, updateVideoAmbulanceDetection } = useTrafficSimulation();
   const [showAnalysis, setShowAnalysis] = useState(false);
@@ -57,8 +61,8 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
       const lastRequestedAt = laneLastRequestedAtRef.current[laneId] ?? 0;
       const now = Date.now();
       const frameMovedEnough =
-        lastRequestedTime === undefined || Math.abs(timeInSeconds - lastRequestedTime) >= 0.3;
-      const requestCooldownElapsed = now - lastRequestedAt >= 320;
+        lastRequestedTime === undefined || Math.abs(timeInSeconds - lastRequestedTime) >= DETECTION_FRAME_STEP_SECONDS;
+      const requestCooldownElapsed = now - lastRequestedAt >= DETECTION_REQUEST_COOLDOWN_MS;
 
       if (!frameMovedEnough && !requestCooldownElapsed) {
         return false;
@@ -168,12 +172,31 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
         return;
       }
 
-      const startIndex = nextSharedLaneIndexRef.current % activeLanes.length;
+      const prioritizedLanes = [...activeLanes].sort((left, right) => {
+        const leftDetection = sharedDetections[left.lane.id];
+        const rightDetection = sharedDetections[right.lane.id];
+        const leftAge = leftDetection ? Date.now() - leftDetection.updatedAt : Number.POSITIVE_INFINITY;
+        const rightAge = rightDetection ? Date.now() - rightDetection.updatedAt : Number.POSITIVE_INFINITY;
+        const leftNeedsPriority = !leftDetection || leftAge >= SHARED_DETECTION_PRIORITY_STALE_MS;
+        const rightNeedsPriority = !rightDetection || rightAge >= SHARED_DETECTION_PRIORITY_STALE_MS;
+
+        if (leftNeedsPriority !== rightNeedsPriority) {
+          return leftNeedsPriority ? -1 : 1;
+        }
+
+        if (leftAge !== rightAge) {
+          return rightAge - leftAge;
+        }
+
+        return left.lane.id - right.lane.id;
+      });
+
+      const startIndex = nextSharedLaneIndexRef.current % prioritizedLanes.length;
       let requested = false;
 
-      for (let offset = 0; offset < activeLanes.length; offset += 1) {
-        const laneIndex = (startIndex + offset) % activeLanes.length;
-        const selectedLane = activeLanes[laneIndex];
+      for (let offset = 0; offset < prioritizedLanes.length; offset += 1) {
+        const laneIndex = (startIndex + offset) % prioritizedLanes.length;
+        const selectedLane = prioritizedLanes[laneIndex];
         requested = await requestLaneDetection(
           selectedLane.lane.id,
           selectedLane.camera,
@@ -186,7 +209,7 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
         }
       }
 
-      scheduleNextPulse(requested ? 120 : 180);
+      scheduleNextPulse(requested ? 90 : 140);
     };
 
     void runSharedDetectionPulse();
@@ -197,7 +220,7 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
         window.clearTimeout(timeoutId);
       }
     };
-  }, [lanes, requestLaneDetection, selectedCameras]);
+  }, [lanes, requestLaneDetection, selectedCameras, sharedDetections]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
