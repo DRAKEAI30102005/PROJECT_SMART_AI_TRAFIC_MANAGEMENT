@@ -455,7 +455,7 @@ export function LaneCard({
   }, [backgroundMode, sharedDetection, sharedDetectionActive]);
 
   useEffect(() => {
-    if (backgroundMode || shouldTrustSharedDetection) {
+    if (backgroundMode || sharedDetectionEnabled) {
       return;
     }
 
@@ -533,7 +533,7 @@ export function LaneCard({
         window.clearTimeout(pollingTimeoutRef.current);
       }
     };
-  }, [backgroundMode, shouldTrustSharedDetection, videoFile]);
+  }, [backgroundMode, sharedDetectionEnabled, shouldTrustSharedDetection, videoFile]);
 
   const visibleVehicleCount = trackedDetections.filter((track) => track.missingFrames === 0).length;
   void onTriggerAmbulance;
