@@ -272,7 +272,6 @@ export function LaneCard({
   const animationFrameRef = useRef<number | null>(null);
   const lastFetchedTimeRef = useRef<number | null>(null);
   const videoRecoveryAttemptsRef = useRef(0);
-  const playbackEnabledRef = useRef(lane.light === 'green');
   const lastSuccessfulDetectionAtRef = useRef(0);
   const trackCounterRef = useRef(0);
   const lastSnapshotSignatureRef = useRef('');
@@ -284,15 +283,15 @@ export function LaneCard({
   const [modelNote, setModelNote] = useState('Analyzing traffic flow...');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const keepSharedDetectionsPinned = lane.light !== 'green';
   const sharedDetectionActive =
     sharedDetectionEnabled &&
     sharedDetection !== null &&
-    (keepSharedDetectionsPinned || Date.now() - sharedDetection.updatedAt <= SHARED_DETECTION_STALE_MS);
+    Date.now() - sharedDetection.updatedAt <= SHARED_DETECTION_STALE_MS;
   const shouldTrustSharedDetection =
     sharedDetectionActive &&
     sharedDetection !== null &&
-    (keepSharedDetectionsPinned || (!sharedDetection.payload.stale && Date.now() - sharedDetection.updatedAt <= SHARED_DETECTION_TRUST_MS));
+    !sharedDetection.payload.stale &&
+    Date.now() - sharedDetection.updatedAt <= SHARED_DETECTION_TRUST_MS;
 
   useEffect(() => {
     trackedDetectionsRef.current = trackedDetections;
@@ -323,7 +322,7 @@ export function LaneCard({
     }
 
     const ensurePlayback = () => {
-      if (playbackEnabledRef.current && video.readyState >= 2 && video.paused && !video.ended) {
+      if (video.readyState >= 2 && video.paused && !video.ended) {
         void video.play().catch(() => {
           // Ignore autoplay/play interruption issues from the browser.
         });
@@ -341,11 +340,7 @@ export function LaneCard({
 
       const restorePlayback = () => {
         video.currentTime = resumeTime;
-        if (playbackEnabledRef.current) {
-          ensurePlayback();
-        } else {
-          video.pause();
-        }
+        ensurePlayback();
       };
 
       if (video.readyState >= 2) {
@@ -376,44 +371,12 @@ export function LaneCard({
   }, []);
 
   useEffect(() => {
-    playbackEnabledRef.current = lane.light === 'green';
     registerVideoElement?.(lane.id, videoRef.current);
 
     return () => {
       registerVideoElement?.(lane.id, null);
     };
-  }, [lane.id, lane.light, registerVideoElement]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || backgroundMode) {
-      return;
-    }
-
-    playbackEnabledRef.current = lane.light === 'green';
-    if (playbackEnabledRef.current) {
-      if (video.readyState >= 2 && video.paused && !video.ended) {
-        void video.play().catch(() => {
-          // Ignore autoplay/play interruption issues from the browser.
-        });
-      }
-      return;
-    }
-
-    if (video.readyState >= 2) {
-      video.pause();
-      return;
-    }
-
-    const pauseWhenReady = () => {
-      video.pause();
-    };
-
-    video.addEventListener('loadeddata', pauseWhenReady, { once: true });
-    return () => {
-      video.removeEventListener('loadeddata', pauseWhenReady);
-    };
-  }, [backgroundMode, lane.light]);
+  }, [lane.id, registerVideoElement]);
 
   useEffect(() => {
     onAmbulanceDetectionChange(hasAmbulanceInFrame);
@@ -492,7 +455,7 @@ export function LaneCard({
   }, [backgroundMode, sharedDetection, sharedDetectionActive]);
 
   useEffect(() => {
-    if (backgroundMode || shouldTrustSharedDetection || lane.light !== 'green') {
+    if (backgroundMode || shouldTrustSharedDetection) {
       return;
     }
 
@@ -570,7 +533,7 @@ export function LaneCard({
         window.clearTimeout(pollingTimeoutRef.current);
       }
     };
-  }, [backgroundMode, lane.light, shouldTrustSharedDetection, videoFile]);
+  }, [backgroundMode, shouldTrustSharedDetection, videoFile]);
 
   const visibleVehicleCount = trackedDetections.filter((track) => track.missingFrames === 0).length;
   void onTriggerAmbulance;
@@ -617,11 +580,6 @@ export function LaneCard({
         </div>
 
         <div className="pointer-events-none absolute left-2 top-8 z-20 flex max-w-[82%] flex-col gap-2">
-          {lane.light === 'red' && (
-            <div className="rounded-md bg-red-950/80 px-2 py-1 text-xs text-red-100">
-              {'Traffic light is red, hence vehicles is stopped'}
-            </div>
-          )}
           {isLoading && (
             <div className="inline-flex items-center gap-2 rounded-md bg-black/65 px-2 py-1 text-xs text-cyan-200">
               <LoaderCircle size={14} className="animate-spin" />
