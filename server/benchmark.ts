@@ -81,6 +81,8 @@ const taskList = JSON.parse(fs.readFileSync(tasksPath, 'utf8')) as BenchmarkTask
 
 let currentTaskIndex = 0;
 let session: Session | null = null;
+const MIN_SCORE = 0.01;
+const MAX_SCORE = 0.99;
 
 function syntheticCount(video: string, timestamp: number, laneId: number): number {
   const seed = Array.from(video).reduce((sum, char) => sum + char.charCodeAt(0), 0) + Math.floor(timestamp * 10) + laneId * 7;
@@ -162,7 +164,7 @@ function cloneState(current: Session): BenchmarkState {
 }
 
 function clampScore(value: number): number {
-  return Math.max(0, Math.min(1, Number(value.toFixed(3))));
+  return Math.max(MIN_SCORE, Math.min(MAX_SCORE, Number(value.toFixed(3))));
 }
 
 export function listBenchmarkTasks(): BenchmarkTask[] {
@@ -210,13 +212,13 @@ export function gradeSelectedLane(state: BenchmarkState, selectedLaneId: number)
 
   if (selectedLane && bestLane) {
     if (selectedLaneId === expectedLane) {
-      reward = 1;
+      reward = MAX_SCORE;
       reason =
         state.evaluation === 'emergency'
           ? 'Selected the emergency lane and preserved ambulance priority.'
           : 'Selected the densest lane and preserved adaptive traffic efficiency.';
     } else if (state.evaluation === 'emergency') {
-      reward = selectedLane.detected_count > 0 ? 0.2 : 0;
+      reward = selectedLane.detected_count > 0 ? 0.2 : MIN_SCORE;
       reason = 'A non-emergency lane was selected while an emergency priority lane was available.';
     } else {
       const ratio = bestLane.detected_count > 0 ? selectedLane.detected_count / bestLane.detected_count : 0;
