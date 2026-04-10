@@ -485,12 +485,13 @@ export function LaneCard({
 
         const message = requestError instanceof Error ? requestError.message : 'Unknown detection error';
         const hasLiveTracks = trackedDetectionsRef.current.some((track) => track.missingFrames <= MAX_MISSING_FRAMES);
+        const hasSuccessfulDetection = lastSuccessfulDetectionAtRef.current > 0;
         const isWarmupMessage = /warming up|please wait a moment|not reachable yet/i.test(message);
 
-        if (isWarmupMessage) {
+        if (isWarmupMessage && !hasSuccessfulDetection) {
           setError(null);
           setModelNote('Detector is starting. Live detection will appear automatically.');
-        } else if (hasLiveTracks && /timed out|not reachable|retrying immediately|latest stable/i.test(message)) {
+        } else if ((hasLiveTracks || hasSuccessfulDetection) && /timed out|not reachable|retrying automatically|retrying immediately|latest stable|incomplete/i.test(message)) {
           setError(null);
           setModelNote('Analyzing traffic flow...');
         } else {

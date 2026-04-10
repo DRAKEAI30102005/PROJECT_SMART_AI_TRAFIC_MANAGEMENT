@@ -29,7 +29,7 @@ interface DetectionHealthResponse {
   warmedWorkers?: number;
 }
 
-const DETECTION_REQUEST_TIMEOUT_MS = 8000;
+const DETECTION_REQUEST_TIMEOUT_MS = 15000;
 
 const API_ROOT_CANDIDATES =
   typeof window !== 'undefined'
@@ -121,7 +121,7 @@ function parseDetectionPayload(text: string): DetectionApiResponse {
 
     return JSON.parse(jsonPayload) as DetectionApiResponse;
   } catch {
-    throw new Error('Detection service is warming up. Retrying automatically.');
+    throw new Error('Detection response was incomplete. Retrying automatically.');
   }
 }
 
@@ -148,8 +148,7 @@ export async function fetchDetectionFrame(videoFile: string, timeInSeconds: numb
   } catch (error) {
     window.clearTimeout(timeoutId);
     if (error instanceof DOMException && error.name === 'AbortError') {
-      healthCheckPromise = null;
-      throw new Error('Detector is still warming up. Please wait a moment.');
+      throw new Error('Detection request timed out. Retrying automatically.');
     }
     throw error;
   }
