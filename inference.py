@@ -43,13 +43,16 @@ def emit(tag: str, payload: dict[str, Any]) -> None:
 def build_client() -> OpenAI | None:
     if OpenAI is None:
         return None
+
+    api_key = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
+    if not api_key:
+        return None
+
     try:
         return OpenAI(
-            base_url=os.environ["API_BASE_URL"].rstrip("/"),
-            api_key=os.environ["API_KEY"],
+            base_url=os.environ.get("API_BASE_URL", API_BASE_URL).rstrip("/"),
+            api_key=api_key,
         )
-    except KeyError:
-        return None
     except Exception:
         return None
 
@@ -108,6 +111,21 @@ def llm_lane_via_client(client: OpenAI, state: dict[str, Any]) -> int:
         temperature=0,
     )
     return parse_selected_lane_id(response.choices[0].message.content or "{}")
+
+
+def warmup_llm_proxy(client: OpenAI) -> None:
+    client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {
+                "role": "user",
+                "content": 'Reply with strict JSON only: {"selected_lane_id":0}',
+            }
+        ],
+        response_format={"type": "json_object"},
+        temperature=0,
+        max_tokens=20,
+    )
 
 
 def llm_lane(client: OpenAI | None, state: dict[str, Any]) -> int:
@@ -191,6 +209,12 @@ def main() -> None:
     session = requests.Session()
 
     try:
+        if client is not None:
+            try:
+                warmup_llm_proxy(client)
+            except Exception:
+                pass
+
         benchmark_base_url = resolve_benchmark_base_url(session)
         tasks_payload = request_json(session, benchmark_base_url, "GET", "/tasks")
         tasks = tasks_payload.get("tasks", [])
