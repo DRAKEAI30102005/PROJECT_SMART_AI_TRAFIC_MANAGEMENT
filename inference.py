@@ -61,8 +61,8 @@ def deterministic_lane(state: dict[str, Any]) -> int:
     return int(lanes[0]["lane_id"]) if lanes else 0
 
 
-def llm_lane(client: OpenAI, state: dict[str, Any]) -> int:
-    prompt = {
+def llm_payload(state: dict[str, Any]) -> dict[str, Any]:
+    return {
         "task": state.get("title"),
         "description": state.get("description"),
         "evaluation": state.get("evaluation"),
@@ -80,29 +80,72 @@ def llm_lane(client: OpenAI, state: dict[str, Any]) -> int:
         "instruction": "Return JSON with a single integer field named selected_lane_id.",
     }
 
-    response = client.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a traffic-signal controller. Choose the best next lane. If any lane is an emergency lane, prioritize it. Reply with strict JSON only.",
-            },
-            {"role": "user", "content": json.dumps(prompt)},
-        ],
-        response_format={"type": "json_object"},
-        temperature=0,
-    )
-    content = response.choices[0].message.content or "{}"
-    payload = json.loads(content)
+
+def llm_messages(state: dict[str, Any]) -> list[dict[str, str]]:
+    return [
+        {
+            "role": "system",
+            "content": "You are a traffic-signal controller. Choose the best next lane. If any lane is an emergency lane, prioritize it. Reply with strict JSON only.",
+        },
+        {"role": "user", "content": json.dumps(llm_payload(state))},
+    ]
+
+
+def parse_selected_lane_id(content: str) -> int:
+    payload = json.loads(content or "{}")
     return int(payload["selected_lane_id"])
 
 
+def llm_lane_via_client(client: OpenAI, state: dict[str, Any]) -> int:
+    response = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=llm_messages(state),
+        response_format={"type": "json_object"},
+        temperature=0,
+    )
+    return parse_selected_lane_id(response.choices[0].message.content or "{}")
+
+
+def llm_lane_via_http(state: dict[str, Any]) -> int:
+    if not API_BASE_URL or not MODEL_NAME or not API_KEY:
+        raise RuntimeError("Missing LLM proxy configuration.")
+
+    response = requests.post(
+        f"{API_BASE_URL}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": MODEL_NAME,
+            "messages": llm_messages(state),
+            "response_format": {"type": "json_object"},
+            "temperature": 0,
+        },
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    content = payload["choices"][0]["message"]["content"]
+    return parse_selected_lane_id(content)
+
+
+def llm_lane(client: OpenAI | None, state: dict[str, Any]) -> int:
+    if client is not None:
+        try:
+            return llm_lane_via_client(client, state)
+        except Exception:
+            pass
+    return llm_lane_via_http(state)
+
+
 def choose_lane(client: OpenAI | None, state: dict[str, Any]) -> tuple[int, str]:
-    if client is None:
+    if not API_BASE_URL or not MODEL_NAME or not API_KEY:
         return deterministic_lane(state), "deterministic-fallback"
 
     try:
-        return llm_lane(client, state), "openai-client"
+        policy = "openai-client" if client is not None else "http-proxy"
+        return llm_lane(client, state), policy
     except Exception:
         return deterministic_lane(state), "deterministic-fallback"
 
