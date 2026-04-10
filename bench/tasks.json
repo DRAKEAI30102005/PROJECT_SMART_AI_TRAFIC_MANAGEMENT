@@ -35,5 +35,17 @@
       { "lane_id": 2, "name": "South", "video": "video6.mp4", "timestamp": 5.0 },
       { "lane_id": 3, "name": "West", "video": "video8.mp4", "timestamp": 5.0 }
     ]
+  },
+  {
+    "id": "downtown_relief",
+    "title": "Downtown Relief Routing",
+    "description": "Relieve the busiest downtown approach by selecting the lane with the highest observed load.",
+    "evaluation": "density",
+    "lanes": [
+      { "lane_id": 0, "name": "North", "video": "video2.mp4", "timestamp": 8.0 },
+      { "lane_id": 1, "name": "East", "video": "video4.mp4", "timestamp": 8.0 },
+      { "lane_id": 2, "name": "South", "video": "video5.mp4", "timestamp": 8.0 },
+      { "lane_id": 3, "name": "West", "video": "video7.mp4", "timestamp": 8.0 }
+    ]
   }
 ]
