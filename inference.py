@@ -42,19 +42,11 @@ def emit(tag: str, payload: dict[str, Any]) -> None:
 
 def build_client() -> OpenAI | None:
     if OpenAI is None:
-        return None
-
-    api_key = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
-    if not api_key:
-        return None
-
-    try:
-        return OpenAI(
-            base_url=os.environ.get("API_BASE_URL", API_BASE_URL).rstrip("/"),
-            api_key=api_key,
-        )
-    except Exception:
-        return None
+        raise RuntimeError("OpenAI client is not available in this environment.")
+    return OpenAI(
+        base_url=os.environ["API_BASE_URL"].rstrip("/"),
+        api_key=os.environ["API_KEY"],
+    )
 
 
 def deterministic_lane(state: dict[str, Any]) -> int:
@@ -128,20 +120,12 @@ def warmup_llm_proxy(client: OpenAI) -> None:
     )
 
 
-def llm_lane(client: OpenAI | None, state: dict[str, Any]) -> int:
-    if client is None:
-        raise RuntimeError("Missing OpenAI client configuration.")
+def llm_lane(client: OpenAI, state: dict[str, Any]) -> int:
     return llm_lane_via_client(client, state)
 
 
-def choose_lane(client: OpenAI | None, state: dict[str, Any]) -> tuple[int, str]:
-    if client is None:
-        return deterministic_lane(state), "deterministic-fallback"
-
-    try:
-        return llm_lane(client, state), "openai-client"
-    except Exception:
-        return deterministic_lane(state), "deterministic-fallback"
+def choose_lane(client: OpenAI, state: dict[str, Any]) -> tuple[int, str]:
+    return llm_lane(client, state), "openai-client"
 
 
 def benchmark_candidates() -> list[str]:
@@ -209,11 +193,7 @@ def main() -> None:
     session = requests.Session()
 
     try:
-        if client is not None:
-            try:
-                warmup_llm_proxy(client)
-            except Exception:
-                pass
+        warmup_llm_proxy(client)
 
         benchmark_base_url = resolve_benchmark_base_url(session)
         tasks_payload = request_json(session, benchmark_base_url, "GET", "/tasks")
