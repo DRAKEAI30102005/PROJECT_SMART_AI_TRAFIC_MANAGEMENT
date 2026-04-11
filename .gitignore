@@ -11,3 +11,8 @@ __pycache__/
 scalar-hackathon-delivery.zip
 Login Credential/
 runs/
+!ml/runs/
+!ml/runs/detect/
+!ml/runs/detect/traffic_vehicles/
+!ml/runs/detect/traffic_vehicles/weights/
+!ml/runs/detect/traffic_vehicles/weights/best.pt

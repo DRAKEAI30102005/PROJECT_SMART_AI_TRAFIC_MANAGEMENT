@@ -44,6 +44,9 @@ def resolve_weights(root_dir: Path) -> str:
     custom_weights = root_dir / "ml" / "runs" / "detect" / "traffic_vehicles" / "weights" / "best.pt"
     if custom_weights.exists():
         return str(custom_weights)
+    medium_weights = root_dir / "yolov8m.pt"
+    if medium_weights.exists():
+        return str(medium_weights)
     return "yolov8n.pt"
 
 
