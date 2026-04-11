@@ -40,12 +40,8 @@ def emit(line: str) -> None:
 
 def resolve_llm_config() -> tuple[str, str]:
     base_url = os.environ.get("API_BASE_URL", "").strip().rstrip("/")
-    api_key = os.environ.get("API_KEY", "").strip()
-
-    if not api_key:
-        api_key = os.environ.get("HF_TOKEN", "").strip()
-        if api_key:
-            os.environ["API_KEY"] = api_key
+    hf_token = os.environ.get("HF_TOKEN", "").strip()
+    api_key = hf_token or os.environ.get("API_KEY", "").strip()
 
     if not base_url:
         raise RuntimeError("Missing API_BASE_URL. Submission must use the injected LiteLLM/OpenAI-compatible proxy.")
@@ -59,6 +55,7 @@ def resolve_llm_config() -> tuple[str, str]:
         )
 
     os.environ["API_BASE_URL"] = base_url
+    os.environ["API_KEY"] = api_key
     return base_url, api_key
 
 
@@ -258,10 +255,14 @@ def main() -> None:
     except Exception as exc:
         rewards_text = ",".join(f"{reward:.2f}" for reward in rewards)
         emit(f"[END] success=false steps={step_count} rewards={rewards_text} error={str(exc).replace(chr(10), ' ')}")
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":
     try:
         main()
+    except SystemExit:
+        raise
     except BaseException as exc:  # pragma: no cover - final submission safety net
         emit(f"[END] success=false steps=0 rewards= error=fatal: {str(exc).replace(chr(10), ' ')}")
+        raise SystemExit(1) from exc
