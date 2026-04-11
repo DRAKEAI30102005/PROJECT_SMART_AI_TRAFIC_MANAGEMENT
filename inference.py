@@ -38,18 +38,14 @@ def emit(line: str) -> None:
     print(line, flush=True)
 
 
-def resolve_llm_config() -> tuple[str, list[str]]:
-    base_url = os.environ.get("API_BASE_URL", "").strip().rstrip("/")
-    candidates = [
-        os.environ.get("API_KEY", "").strip(),
-        os.environ.get("HF_TOKEN", "").strip(),
-    ]
-    api_keys = [candidate for index, candidate in enumerate(candidates) if candidate and candidate not in candidates[:index]]
+def resolve_llm_config() -> tuple[str, str]:
+    base_url = os.environ["API_BASE_URL"].strip().rstrip("/")
+    api_key = os.environ["API_KEY"].strip()
 
     if not base_url:
         raise RuntimeError("Missing API_BASE_URL. Submission must use the injected LiteLLM/OpenAI-compatible proxy.")
 
-    if not api_keys:
+    if not api_key:
         raise RuntimeError("Missing API_KEY. Submission must use the injected proxy API key.")
 
     if "api.openai.com" in base_url.lower():
@@ -57,29 +53,19 @@ def resolve_llm_config() -> tuple[str, list[str]]:
             "API_BASE_URL points to api.openai.com. Submission must use the injected LiteLLM/OpenAI-compatible proxy."
         )
 
-    os.environ["API_BASE_URL"] = base_url
-    return base_url, api_keys
+    return base_url, api_key
 
 
 def build_client() -> OpenAI | None:
     if OpenAI is None:
         raise RuntimeError("OpenAI client is not available in this environment.")
-    base_url, api_keys = resolve_llm_config()
-    last_error: Exception | None = None
-
-    for api_key in api_keys:
-        try:
-            client = OpenAI(
-                base_url=base_url,
-                api_key=api_key,
-            )
-            warmup_llm_proxy(client)
-            os.environ["API_KEY"] = api_key
-            return client
-        except Exception as exc:
-            last_error = exc
-
-    raise RuntimeError(f"Could not authenticate with the injected LLM proxy: {last_error}") from last_error
+    base_url, api_key = resolve_llm_config()
+    client = OpenAI(
+        base_url=base_url,
+        api_key=api_key,
+    )
+    warmup_llm_proxy(client)
+    return client
 
 
 def deterministic_lane(state: dict[str, Any]) -> int:
