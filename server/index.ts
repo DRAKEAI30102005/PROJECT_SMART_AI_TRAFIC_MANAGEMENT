@@ -312,6 +312,8 @@ function startWorker(workerIndex: number): WorkerEntry {
 
     const readyTimer = setTimeout(() => {
       if (!resolved) {
+        cleanupWorker(workerIndex, startupLogs.join(' ') || `Detector worker ${workerIndex} timed out while starting.`);
+        workerProcess.kill();
         reject(new Error(startupLogs.join(' ') || `Detector worker ${workerIndex} timed out while starting.`));
       }
     }, 120000);
@@ -403,7 +405,12 @@ function ensureWorker(workerIndex: number): Promise<void> {
     worker = startWorker(workerIndex);
     workerPool[workerIndex] = worker;
   }
-  return worker.readyPromise;
+  return worker.readyPromise.catch((error) => {
+    if (workerPool[workerIndex] === worker) {
+      workerPool[workerIndex] = null;
+    }
+    throw error;
+  });
 }
 
 async function ensureWorkerPool(): Promise<void> {
