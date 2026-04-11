@@ -35,9 +35,8 @@ REQUEST_RETRIES = 5
 BENCHMARK_READY_WAIT_SECONDS = 90
 
 
-def emit(tag: str, payload: dict[str, Any]) -> None:
-    print(f"[{tag}] {json.dumps(payload, separators=(',', ':'))}")
-    sys.stdout.flush()
+def emit(line: str) -> None:
+    print(line, flush=True)
 
 
 def build_client() -> OpenAI | None:
@@ -189,25 +188,19 @@ def request_json(
 
 
 def main() -> None:
-    client = build_client()
     session = requests.Session()
+    rewards: list[float] = []
+    step_count = 0
 
     try:
+        emit(f"[START] task=openenv-benchmark env=benchmark model={MODEL_NAME}")
+
+        client = build_client()
         warmup_llm_proxy(client)
 
         benchmark_base_url = resolve_benchmark_base_url(session)
         tasks_payload = request_json(session, benchmark_base_url, "GET", "/tasks")
         tasks = tasks_payload.get("tasks", [])
-
-        emit(
-            "START",
-            {
-                "task_count": len(tasks),
-                "benchmark_base_url": benchmark_base_url,
-                "api_base_url": API_BASE_URL,
-                "model_name": MODEL_NAME or "deterministic-fallback",
-            },
-        )
 
         scores: list[dict[str, Any]] = []
         for index, task in enumerate(tasks, start=1):
@@ -217,6 +210,11 @@ def main() -> None:
             result = request_json(session, benchmark_base_url, "POST", "/step", {"selected_lane_id": lane_id})
             graded_score = grade_task(reset_state, lane_id)
             score = min(max(float(result.get("score", graded_score)), 0.0), 1.0)
+            step_count = index
+            rewards.append(score)
+            error = result.get("error")
+            error_text = "null" if error in (None, "", "null") else str(error).replace("\n", " ")
+            done = "true" if index == len(tasks) else "false"
 
             scores.append(
                 {
@@ -227,39 +225,19 @@ def main() -> None:
                 }
             )
             emit(
-                "STEP",
-                {
-                    "task_index": index,
-                    "task_id": task["id"],
-                    "selected_lane_id": lane_id,
-                    "expected_lane_id": result.get("expected_lane_id"),
-                    "reward": score,
-                    "policy": policy,
-                },
+                f"[STEP] step={index} action=select_lane({lane_id}) reward={score:.2f} done={done} error={error_text}"
             )
 
         average_score = round(sum(item["score"] for item in scores) / max(1, len(scores)), 3)
-        emit("END", {"average_score": average_score, "scores": scores})
+        rewards_text = ",".join(f"{reward:.2f}" for reward in rewards)
+        emit(f"[END] success=true steps={step_count} rewards={rewards_text}")
     except Exception as exc:
-        emit(
-            "END",
-            {
-                "average_score": 0.0,
-                "scores": [],
-                "error": str(exc),
-            },
-        )
+        rewards_text = ",".join(f"{reward:.2f}" for reward in rewards)
+        emit(f"[END] success=false steps={step_count} rewards={rewards_text} error={str(exc).replace(chr(10), ' ')}")
 
 
 if __name__ == "__main__":
     try:
         main()
     except BaseException as exc:  # pragma: no cover - final submission safety net
-        emit(
-            "END",
-            {
-                "average_score": 0.0,
-                "scores": [],
-                "error": f"fatal: {exc}",
-            },
-        )
+        emit(f"[END] success=false steps=0 rewards= error=fatal: {str(exc).replace(chr(10), ' ')}")
