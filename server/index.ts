@@ -40,6 +40,7 @@ type WorkerEntry = {
   readyPromise: Promise<void>;
   busyCount: number;
   ready: boolean;
+  dispatchChain: Promise<void>;
 };
 
 type PythonLauncher = {
@@ -396,7 +397,23 @@ function startWorker(workerIndex: number): WorkerEntry {
     readyPromise,
     busyCount: 0,
     ready: false,
+    dispatchChain: Promise.resolve(),
   };
+}
+
+function enqueueWorkerTask<T>(workerIndex: number, task: () => Promise<T>): Promise<T> {
+  const worker = workerPool[workerIndex];
+  if (!worker) {
+    return Promise.reject(new Error(`Detector worker ${workerIndex} is not available.`));
+  }
+
+  const scheduledTask = worker.dispatchChain.then(task, task);
+  worker.dispatchChain = scheduledTask.then(
+    () => undefined,
+    () => undefined
+  );
+
+  return scheduledTask;
 }
 
 function ensureWorker(workerIndex: number): Promise<void> {
@@ -514,61 +531,62 @@ function runDetector(video: string, timestamp: number, cacheKey: string): Promis
 
     try {
       await ensureWorker(workerIndex);
-
-      const worker = workerPool[workerIndex];
-      if (!worker?.process.stdin.writable) {
-        throw new Error(`Detector worker ${workerIndex} is not writable.`);
-      }
-
-      worker.busyCount += 1;
-      workerSequence += 1;
-      const requestId = `req-${workerSequence}`;
-
-      const timeoutId = setTimeout(() => {
-        pendingRequests.delete(requestId);
-        worker.busyCount = Math.max(0, worker.busyCount - 1);
-
-        const fallback = staleResult(cacheKey);
-        if (fallback) {
-          resolve(fallback);
-          return;
+      await enqueueWorkerTask(workerIndex, async () => {
+        const worker = workerPool[workerIndex];
+        if (!worker?.process.stdin.writable) {
+          throw new Error(`Detector worker ${workerIndex} is not writable.`);
         }
 
-        const liveCacheKey = parseLiveCacheKey(cacheKey);
-        if (liveCacheKey) {
-          const videoFallback = staleVideoResult(liveCacheKey.video, liveCacheKey.timestamp);
-          if (videoFallback) {
-            resolve(videoFallback);
+        worker.busyCount += 1;
+        workerSequence += 1;
+        const requestId = `req-${workerSequence}`;
+
+        const timeoutId = setTimeout(() => {
+          pendingRequests.delete(requestId);
+          worker.busyCount = Math.max(0, worker.busyCount - 1);
+
+          const fallback = staleResult(cacheKey);
+          if (fallback) {
+            resolve(fallback);
             return;
           }
 
-          resolve({
-            detections: [],
-            hasAmbulance: false,
-            note: LIVE_EMPTY_FALLBACK_NOTE,
-            stale: true,
-          });
-          return;
-        }
+          const liveCacheKey = parseLiveCacheKey(cacheKey);
+          if (liveCacheKey) {
+            const videoFallback = staleVideoResult(liveCacheKey.video, liveCacheKey.timestamp);
+            if (videoFallback) {
+              resolve(videoFallback);
+              return;
+            }
 
-        reject(new Error('Detector timed out while processing the frame.'));
-      }, 30000);
+            resolve({
+              detections: [],
+              hasAmbulance: false,
+              note: LIVE_EMPTY_FALLBACK_NOTE,
+              stale: true,
+            });
+            return;
+          }
 
-      pendingRequests.set(requestId, {
-        resolve,
-        reject,
-        timeoutId,
-        cacheKey,
-        workerIndex,
+          reject(new Error('Detector timed out while processing the frame.'));
+        }, 30000);
+
+        pendingRequests.set(requestId, {
+          resolve,
+          reject,
+          timeoutId,
+          cacheKey,
+          workerIndex,
+        });
+
+        worker.process.stdin.write(
+          JSON.stringify({
+            id: requestId,
+            video: path.join('public', 'videos', video),
+            time: Number(timestamp.toFixed(2)),
+          }) + '\n'
+        );
       });
-
-      worker.process.stdin.write(
-        JSON.stringify({
-          id: requestId,
-          video: path.join('public', 'videos', video),
-          time: Number(timestamp.toFixed(2)),
-        }) + '\n'
-      );
     } catch (error) {
       const fallback = staleResult(cacheKey);
       if (fallback) {

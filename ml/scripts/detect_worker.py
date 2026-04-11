@@ -31,7 +31,7 @@ def load_model(root_dir: Path) -> tuple[YOLO, str, bool]:
         if not uses_custom_weights:
             raise
 
-    fallback_weights = "yolov8n.pt"
+    fallback_weights = str(root_dir / "yolov8m.pt") if (root_dir / "yolov8m.pt").exists() else "yolov8n.pt"
     return YOLO(fallback_weights), fallback_weights, False
 
 
