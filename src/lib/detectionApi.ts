@@ -67,12 +67,22 @@ async function ensureDetectionApiReady(): Promise<string | null> {
               lastKnownApiRoot = root;
               return root;
             }
+
+            if (payload.ok) {
+              lastKnownApiRoot = root;
+              return root;
+            }
           }
 
           const rootHealthResponse = await fetch(root ? `${root}/health` : '/health');
           if (rootHealthResponse.ok) {
             const payload = (await rootHealthResponse.json()) as DetectionHealthResponse;
             if (payload.ok && payload.detectorReady) {
+              lastKnownApiRoot = root;
+              return root;
+            }
+
+            if (payload.ok) {
               lastKnownApiRoot = root;
               return root;
             }
@@ -169,6 +179,11 @@ export async function fetchDetectionFrame(videoFile: string, timeInSeconds: numb
 
     if (!response.ok) {
       if ((payload.details || payload.error || '').toLowerCase().includes('warm')) {
+        healthCheckPromise = null;
+        throw new Error('Detector is still warming up. Please wait a moment.');
+      }
+
+      if ((payload.details || payload.error || '').toLowerCase().includes('not writable')) {
         healthCheckPromise = null;
         throw new Error('Detector is still warming up. Please wait a moment.');
       }
