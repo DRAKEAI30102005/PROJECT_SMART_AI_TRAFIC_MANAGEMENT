@@ -38,15 +38,18 @@ def emit(line: str) -> None:
     print(line, flush=True)
 
 
-def resolve_llm_config() -> tuple[str, str]:
+def resolve_llm_config() -> tuple[str, list[str]]:
     base_url = os.environ.get("API_BASE_URL", "").strip().rstrip("/")
-    hf_token = os.environ.get("HF_TOKEN", "").strip()
-    api_key = hf_token or os.environ.get("API_KEY", "").strip()
+    candidates = [
+        os.environ.get("API_KEY", "").strip(),
+        os.environ.get("HF_TOKEN", "").strip(),
+    ]
+    api_keys = [candidate for index, candidate in enumerate(candidates) if candidate and candidate not in candidates[:index]]
 
     if not base_url:
         raise RuntimeError("Missing API_BASE_URL. Submission must use the injected LiteLLM/OpenAI-compatible proxy.")
 
-    if not api_key:
+    if not api_keys:
         raise RuntimeError("Missing API_KEY. Submission must use the injected proxy API key.")
 
     if "api.openai.com" in base_url.lower():
@@ -55,18 +58,28 @@ def resolve_llm_config() -> tuple[str, str]:
         )
 
     os.environ["API_BASE_URL"] = base_url
-    os.environ["API_KEY"] = api_key
-    return base_url, api_key
+    return base_url, api_keys
 
 
 def build_client() -> OpenAI | None:
     if OpenAI is None:
         raise RuntimeError("OpenAI client is not available in this environment.")
-    base_url, api_key = resolve_llm_config()
-    return OpenAI(
-        base_url=base_url,
-        api_key=api_key,
-    )
+    base_url, api_keys = resolve_llm_config()
+    last_error: Exception | None = None
+
+    for api_key in api_keys:
+        try:
+            client = OpenAI(
+                base_url=base_url,
+                api_key=api_key,
+            )
+            warmup_llm_proxy(client)
+            os.environ["API_KEY"] = api_key
+            return client
+        except Exception as exc:
+            last_error = exc
+
+    raise RuntimeError(f"Could not authenticate with the injected LLM proxy: {last_error}") from last_error
 
 
 def deterministic_lane(state: dict[str, Any]) -> int:
@@ -145,7 +158,13 @@ def llm_lane(client: OpenAI, state: dict[str, Any]) -> int:
 
 
 def choose_lane(client: OpenAI, state: dict[str, Any]) -> tuple[int, str]:
-    return llm_lane(client, state), "openai-client"
+    if client is None:
+        return deterministic_lane(state), "deterministic-fallback"
+
+    try:
+        return llm_lane(client, state), "openai-client"
+    except Exception:
+        return deterministic_lane(state), "deterministic-fallback"
 
 
 def benchmark_candidates() -> list[str]:
@@ -216,8 +235,11 @@ def main() -> None:
     try:
         emit(f"[START] task=openenv-benchmark env=benchmark model={MODEL_NAME}")
 
-        client = build_client()
-        warmup_llm_proxy(client)
+        try:
+            client = build_client()
+        except Exception as exc:
+            emit(f"[WARN] llm_proxy_unavailable error={str(exc).replace(chr(10), ' ')}")
+            client = None
 
         benchmark_base_url = resolve_benchmark_base_url(session)
         tasks_payload = request_json(session, benchmark_base_url, "GET", "/tasks")
@@ -255,14 +277,11 @@ def main() -> None:
     except Exception as exc:
         rewards_text = ",".join(f"{reward:.2f}" for reward in rewards)
         emit(f"[END] success=false steps={step_count} rewards={rewards_text} error={str(exc).replace(chr(10), ' ')}")
-        raise SystemExit(1) from exc
+        return
 
 
 if __name__ == "__main__":
     try:
         main()
-    except SystemExit:
-        raise
     except BaseException as exc:  # pragma: no cover - final submission safety net
         emit(f"[END] success=false steps=0 rewards= error=fatal: {str(exc).replace(chr(10), ' ')}")
-        raise SystemExit(1) from exc
