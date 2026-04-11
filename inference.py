@@ -34,6 +34,10 @@ REQUEST_TIMEOUT_SECONDS = 30
 REQUEST_RETRIES = 5
 BENCHMARK_READY_WAIT_SECONDS = 90
 
+os.environ.setdefault("API_BASE_URL", API_BASE_URL)
+if "API_KEY" not in os.environ and os.environ.get("HF_TOKEN"):
+    os.environ["API_KEY"] = os.environ["HF_TOKEN"]
+
 
 def emit(line: str) -> None:
     print(line, flush=True)
@@ -43,7 +47,7 @@ def build_client() -> OpenAI | None:
     if OpenAI is None:
         raise RuntimeError("OpenAI client is not available in this environment.")
     return OpenAI(
-        base_url=os.environ["API_BASE_URL"].rstrip("/"),
+        base_url=os.environ["API_BASE_URL"],
         api_key=os.environ["API_KEY"],
     )
 
