@@ -58,6 +58,7 @@ const DETECTION_POLL_MS = 180;
 const DETECTION_FRAME_STEP_SECONDS = 0.18;
 const SHARED_DETECTION_STALE_MS = 4200;
 const SHARED_DETECTION_TRUST_MS = 4200;
+const SHARED_DETECTION_RECOVERY_MS = 5200;
 const MAX_VIDEO_RECOVERY_ATTEMPTS = 3;
 
 function computeIoU(a: TrackBox, b: TrackBox): number {
@@ -292,6 +293,9 @@ export function LaneCard({
     sharedDetection !== null &&
     !sharedDetection.payload.stale &&
     Date.now() - sharedDetection.updatedAt <= SHARED_DETECTION_TRUST_MS;
+  const shouldRecoverSharedDetection =
+    sharedDetectionEnabled &&
+    (!sharedDetection || Date.now() - sharedDetection.updatedAt > SHARED_DETECTION_RECOVERY_MS);
 
   useEffect(() => {
     trackedDetectionsRef.current = trackedDetections;
@@ -455,7 +459,7 @@ export function LaneCard({
   }, [backgroundMode, sharedDetection, sharedDetectionActive]);
 
   useEffect(() => {
-    if (backgroundMode || sharedDetectionEnabled) {
+    if (backgroundMode || (sharedDetectionEnabled && !shouldRecoverSharedDetection)) {
       return;
     }
 
@@ -533,7 +537,7 @@ export function LaneCard({
         window.clearTimeout(pollingTimeoutRef.current);
       }
     };
-  }, [backgroundMode, sharedDetectionEnabled, shouldTrustSharedDetection, videoFile]);
+  }, [backgroundMode, sharedDetectionEnabled, shouldRecoverSharedDetection, shouldTrustSharedDetection, videoFile]);
 
   const visibleVehicleCount = trackedDetections.filter((track) => track.missingFrames === 0).length;
   void onTriggerAmbulance;
