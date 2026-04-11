@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT / "bench"))
 from graders import grade_task  # noqa: E402
 
 
-API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+API_BASE_URL = os.environ.get("API_BASE_URL", "").rstrip("/")
 MODEL_NAME = os.environ.get("MODEL_NAME", os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"))
 BENCHMARK_BASE_URL = os.environ.get("BENCHMARK_BASE_URL", "http://127.0.0.1:3001").rstrip("/")
 BENCHMARK_FALLBACK_URLS = [
@@ -34,21 +34,41 @@ REQUEST_TIMEOUT_SECONDS = 30
 REQUEST_RETRIES = 5
 BENCHMARK_READY_WAIT_SECONDS = 90
 
-os.environ.setdefault("API_BASE_URL", API_BASE_URL)
-if "API_KEY" not in os.environ and os.environ.get("HF_TOKEN"):
-    os.environ["API_KEY"] = os.environ["HF_TOKEN"]
-
-
 def emit(line: str) -> None:
     print(line, flush=True)
+
+
+def resolve_llm_config() -> tuple[str, str]:
+    base_url = os.environ.get("API_BASE_URL", "").strip().rstrip("/")
+    api_key = os.environ.get("API_KEY", "").strip()
+
+    if not api_key:
+        api_key = os.environ.get("HF_TOKEN", "").strip()
+        if api_key:
+            os.environ["API_KEY"] = api_key
+
+    if not base_url:
+        raise RuntimeError("Missing API_BASE_URL. Submission must use the injected LiteLLM/OpenAI-compatible proxy.")
+
+    if not api_key:
+        raise RuntimeError("Missing API_KEY. Submission must use the injected proxy API key.")
+
+    if "api.openai.com" in base_url.lower():
+        raise RuntimeError(
+            "API_BASE_URL points to api.openai.com. Submission must use the injected LiteLLM/OpenAI-compatible proxy."
+        )
+
+    os.environ["API_BASE_URL"] = base_url
+    return base_url, api_key
 
 
 def build_client() -> OpenAI | None:
     if OpenAI is None:
         raise RuntimeError("OpenAI client is not available in this environment.")
+    base_url, api_key = resolve_llm_config()
     return OpenAI(
-        base_url=os.environ["API_BASE_URL"],
-        api_key=os.environ["API_KEY"],
+        base_url=base_url,
+        api_key=api_key,
     )
 
 
