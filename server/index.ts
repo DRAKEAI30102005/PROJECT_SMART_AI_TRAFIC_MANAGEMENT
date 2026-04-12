@@ -53,6 +53,7 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 const app = express();
 const distDir = path.join(rootDir, 'dist');
+const publicDir = path.join(rootDir, 'public');
 const allowedVideoPattern = /^video[1-8]\.mp4$/i;
 const allowedVideos = Array.from({ length: 8 }, (_, index) => `video${index + 1}.mp4`);
 const lastSuccessfulDetections = new Map<string, DetectionResult>();
@@ -723,6 +724,10 @@ app.post('/step', (req, res) => {
     });
   }
 });
+
+if (fs.existsSync(publicDir)) {
+  app.use(express.static(publicDir));
+}
 
 if (fs.existsSync(distDir)) {
   app.use(express.static(distDir));
