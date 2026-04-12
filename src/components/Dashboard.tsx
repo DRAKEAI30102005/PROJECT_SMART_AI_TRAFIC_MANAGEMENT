@@ -20,9 +20,9 @@ type HistoryPoint = {
   activeAmbulances: number;
 };
 
-const DETECTION_FRAME_STEP_SECONDS = 0.18;
-const DETECTION_REQUEST_COOLDOWN_MS = 280;
-const SHARED_DETECTION_PRIORITY_STALE_MS = 2200;
+const DETECTION_FRAME_STEP_SECONDS = 0.7;
+const DETECTION_REQUEST_COOLDOWN_MS = 900;
+const SHARED_DETECTION_PRIORITY_STALE_MS = 5000;
 
 export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras, initialSharedDetections = {} }: DashboardProps) {
   const { lanes, stats, ambulanceAlert, triggerAmbulance, isAmbulanceOverride, updateVideoAmbulanceDetection } = useTrafficSimulation();
@@ -158,7 +158,7 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
       }
 
       if (sharedRequestInFlightRef.current) {
-        scheduleNextPulse(120);
+        scheduleNextPulse(500);
         return;
       }
 
@@ -173,7 +173,7 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
         );
 
       if (activeLanes.length === 0) {
-        scheduleNextPulse(180);
+        scheduleNextPulse(700);
         return;
       }
 
@@ -214,7 +214,7 @@ export function Dashboard({ onLogout, onChangeFootage, onGoHome, selectedCameras
         }
       }
 
-      scheduleNextPulse(requested ? 120 : 180);
+      scheduleNextPulse(requested ? 450 : 700);
     };
 
     void runSharedDetectionPulse();
