@@ -76,7 +76,7 @@ IMAGE_NAME = os.getenv("IMAGE_NAME")  # If you are using docker image
 API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
 
 
-API_BASE_URL = os.environ["API_BASE_URL"]
+API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 TASK_NAME = os.getenv("TASK_NAME", "openenv-benchmark")
 BENCHMARK = os.getenv("BENCHMARK", "benchmark")
