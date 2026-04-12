@@ -75,7 +75,7 @@ load_local_env(ROOT / ".env")
 IMAGE_NAME = os.getenv("IMAGE_NAME")
 API_KEY = os.environ["API_KEY"]
 API_BASE_URL = os.environ["API_BASE_URL"]
-MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
+MODEL_NAME = os.getenv("MODEL_NAME") or "gpt-4.1-mini"
 TASK_NAME = os.getenv("TASK_NAME", "openenv-benchmark")
 BENCHMARK = os.getenv("BENCHMARK", "benchmark")
 BENCHMARK_BASE_URL = os.getenv("BENCHMARK_BASE_URL", "http://127.0.0.1:3001").rstrip("/")
