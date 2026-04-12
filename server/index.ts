@@ -48,12 +48,26 @@ type PythonLauncher = {
   args: string[];
 };
 
+type PrecomputedDetectionFrame = {
+  detections: DetectionResult['detections'];
+  hasAmbulance: boolean;
+};
+
+type PrecomputedDetectionVideo = {
+  step: number;
+  duration: number;
+  frames: Record<string, PrecomputedDetectionFrame>;
+};
+
+type PrecomputedDetectionCache = Record<string, PrecomputedDetectionVideo>;
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 const app = express();
 const distDir = path.join(rootDir, 'dist');
 const publicDir = path.join(rootDir, 'public');
+const precomputedDetectionsPath = path.join(__dirname, 'precomputed_detections.json');
 const allowedVideoPattern = /^video[1-8]\.mp4$/i;
 const allowedVideos = Array.from({ length: 8 }, (_, index) => `video${index + 1}.mp4`);
 const lastSuccessfulDetections = new Map<string, DetectionResult>();
@@ -79,6 +93,7 @@ const PREFETCH_ENABLED = process.env.DETECTION_PREFETCH === 'true';
 const PRIME_CACHE_ON_STARTUP = process.env.DETECTION_PRIME_CACHE !== 'false';
 const LIVE_EMPTY_FALLBACK_NOTE = 'Detector is still catching up. Keeping the live stream active with the last stable state.';
 const LIVE_STABLE_FALLBACK_NOTE = 'Streaming the latest stable detections while a fresh frame is processed.';
+const PRECOMPUTED_DETECTION_NOTE = 'Using bundled traffic detections for smooth live playback.';
 const PRIMED_FRAME_TIME_BY_VIDEO: Record<string, number> = {
   'video1.mp4': 0.5,
   'video2.mp4': 0.5,
@@ -92,6 +107,18 @@ const PRIMED_FRAME_TIME_BY_VIDEO: Record<string, number> = {
 
 let workerSequence = 0;
 let warmedWorkers = 0;
+const precomputedDetections: PrecomputedDetectionCache = (() => {
+  if (!fs.existsSync(precomputedDetectionsPath)) {
+    return {};
+  }
+
+  try {
+    const raw = fs.readFileSync(precomputedDetectionsPath, 'utf8');
+    return JSON.parse(raw) as PrecomputedDetectionCache;
+  } catch {
+    return {};
+  }
+})();
 
 function resolvePythonLauncher(): PythonLauncher {
   const configured = process.env.PYTHON_BIN?.trim();
@@ -220,6 +247,27 @@ function hasWorkerCapacityForFreshDetection(): boolean {
 
 function quantizeTimestamp(timestamp: number): number {
   return Math.floor(timestamp * CACHE_BUCKETS_PER_SECOND) / CACHE_BUCKETS_PER_SECOND;
+}
+
+function getPrecomputedDetection(video: string, timestamp: number): DetectionResult | null {
+  const cachedVideo = precomputedDetections[video];
+  if (!cachedVideo) {
+    return null;
+  }
+
+  const step = cachedVideo.step > 0 ? cachedVideo.step : 0.5;
+  const clampedTimestamp = Math.max(0, Math.min(timestamp, cachedVideo.duration));
+  const bucket = (Math.round(clampedTimestamp / step) * step).toFixed(2);
+  const frame = cachedVideo.frames[bucket];
+  if (!frame) {
+    return null;
+  }
+
+  return {
+    detections: frame.detections,
+    hasAmbulance: frame.hasAmbulance,
+    note: PRECOMPUTED_DETECTION_NOTE,
+  };
 }
 
 function prefetchVideoFrame(video: string, timestamp: number) {
@@ -654,6 +702,18 @@ app.get('/api/detections', async (req, res) => {
   }
 
   try {
+    const precomputed = getPrecomputedDetection(video, quantizedTimestamp);
+    if (precomputed) {
+      const precomputedCacheKey = `${video}:${quantizedTimestamp}`;
+      lastSuccessfulDetections.set(precomputedCacheKey, precomputed);
+      lastDetectionByVideo.set(video, {
+        timestamp: quantizedTimestamp,
+        result: precomputed,
+      });
+      res.json(precomputed);
+      return;
+    }
+
     const fallback = bestEffortVideoResult(video, quantizedTimestamp);
     if (fallback) {
       void runDetector(video, quantizedTimestamp, cacheKey).catch(() => {
