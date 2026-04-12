@@ -73,6 +73,7 @@ const detectedWorkerCount = (() => {
 const workerPoolSize = detectedWorkerCount;
 const CACHE_BUCKETS_PER_SECOND = Math.max(1, Number(process.env.DETECTION_CACHE_BUCKETS_PER_SECOND ?? 3));
 const STALE_VIDEO_FALLBACK_SECONDS = Math.max(2.5, Number(process.env.STALE_VIDEO_FALLBACK_SECONDS ?? 3.5));
+const DETECTION_WORKER_TIMEOUT_MS = Math.max(12000, Number(process.env.DETECTION_WORKER_TIMEOUT_MS ?? 22000));
 const PREFETCH_ENABLED = process.env.DETECTION_PREFETCH === 'true';
 const PRIME_CACHE_ON_STARTUP = process.env.DETECTION_PRIME_CACHE !== 'false';
 const LIVE_EMPTY_FALLBACK_NOTE = 'Detector is still catching up. Keeping the live stream active with the last stable state.';
@@ -569,7 +570,7 @@ function runDetector(video: string, timestamp: number, cacheKey: string): Promis
           }
 
           reject(new Error('Detector timed out while processing the frame.'));
-        }, 30000);
+        }, DETECTION_WORKER_TIMEOUT_MS);
 
         pendingRequests.set(requestId, {
           resolve,
