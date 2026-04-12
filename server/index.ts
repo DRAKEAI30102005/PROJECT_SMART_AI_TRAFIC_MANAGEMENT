@@ -195,6 +195,10 @@ function hasVideoRequestInFlight(video: string): boolean {
   return false;
 }
 
+function hasWorkerCapacityForFreshDetection(): boolean {
+  return pendingRequests.size < workerPoolSize;
+}
+
 function quantizeTimestamp(timestamp: number): number {
   return Math.floor(timestamp * CACHE_BUCKETS_PER_SECOND) / CACHE_BUCKETS_PER_SECOND;
 }
@@ -638,6 +642,16 @@ app.get('/api/detections', async (req, res) => {
       });
       prefetchVideoFrame(video, quantizedTimestamp + 1 / CACHE_BUCKETS_PER_SECOND);
       res.json(fallback);
+      return;
+    }
+
+    if (!hasWorkerCapacityForFreshDetection()) {
+      res.json({
+        detections: [],
+        hasAmbulance: false,
+        note: LIVE_EMPTY_FALLBACK_NOTE,
+        stale: true,
+      });
       return;
     }
 
