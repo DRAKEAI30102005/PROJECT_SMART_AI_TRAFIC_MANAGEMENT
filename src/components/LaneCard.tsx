@@ -541,7 +541,8 @@ export function LaneCard({
       scheduleNextPoll(DETECTION_POLL_MS);
     };
 
-    runDetectionLoop();
+    const initialDelayMs = Math.min((lane.id % 4) * Math.floor(DETECTION_POLL_MS / 4), DETECTION_POLL_MS - 80);
+    scheduleNextPoll(initialDelayMs);
 
     return () => {
       cancelled = true;
