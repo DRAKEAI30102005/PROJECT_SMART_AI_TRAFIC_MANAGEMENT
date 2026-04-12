@@ -29,7 +29,7 @@ interface DetectionHealthResponse {
   warmedWorkers?: number;
 }
 
-const DETECTION_REQUEST_TIMEOUT_MS = 30000;
+const DETECTION_REQUEST_TIMEOUT_MS = 40000;
 
 const API_ROOT_CANDIDATES =
   typeof window !== 'undefined'
