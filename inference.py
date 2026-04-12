@@ -239,9 +239,7 @@ def get_model_message(client: OpenAI, state: dict[str, Any], history: List[str])
 
 
 def main() -> None:
-    client = build_client()
-    session = requests.Session()
-
+    session: requests.Session | None = None
     history: List[str] = []
     rewards: List[float] = []
     steps_taken = 0
@@ -251,6 +249,8 @@ def main() -> None:
     log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
 
     try:
+        client = build_client()
+        session = requests.Session()
         benchmark_base_url = resolve_benchmark_base_url(session)
         tasks_payload = request_json(session, benchmark_base_url, "GET", "/tasks")
         tasks = tasks_payload.get("tasks", [])
@@ -276,13 +276,13 @@ def main() -> None:
 
         score = min(max(sum(rewards) / max(1, len(rewards)), 0.01), 0.99)
         success = score >= SUCCESS_SCORE_THRESHOLD
+    except BaseException:
+        success = False
     finally:
-        session.close()
+        if session is not None:
+            session.close()
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except BaseException:
-        log_end(success=False, steps=0, score=0.0, rewards=[])
+    main()
