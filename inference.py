@@ -1,294 +1,188 @@
-from __future__ import annotations
+"""
+Inference Script Example
+===================================
+MANDATORY
+- Before submitting, ensure the following variables are defined in your environment configuration:
+    API_BASE_URL   The API endpoint for the LLM.
+    MODEL_NAME     The model identifier to use for inference.
+    HF_TOKEN       Your Hugging Face / API key.
+    LOCAL_IMAGE_NAME The name of the local image to use for the environment if you are using from_docker_image()
+                     method
 
-import json
+- Defaults are set only for API_BASE_URL and MODEL_NAME 
+    (and should reflect your active inference setup):
+    API_BASE_URL = os.getenv("API_BASE_URL", "<your-active-endpoint>")
+    MODEL_NAME = os.getenv("MODEL_NAME", "<your-active-model>")
+    
+- The inference script must be named `inference.py` and placed in the root directory of the project
+- Participants must use OpenAI Client for all LLM calls using above variables
+
+STDOUT FORMAT
+- The script must emit exactly three line types to stdout, in this order:
+
+    [START] task=<task_name> env=<benchmark> model=<model_name>
+    [STEP]  step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
+    [END]   success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>
+
+  Rules:
+    - One [START] line at episode begin.
+    - One [STEP] line per step, immediately after env.step() returns.
+    - One [END] line after env.close(), always emitted (even on exception).
+    - reward and rewards are formatted to 2 decimal places.
+    - done and success are lowercase booleans: true or false.
+    - error is the raw last_action_error string, or null if none.
+    - All fields on a single line with no newlines within a line.
+    - Each tasks should return score in [0, 1]
+
+  Example:
+    [START] task=click-test env=miniwob model=Qwen3-VL-30B
+    [STEP] step=1 action=click('123') reward=0.00 done=false error=null
+    [STEP] step=2 action=fill('456','text') reward=0.00 done=false error=null
+    [STEP] step=3 action=click('789') reward=1.00 done=true error=null
+    [END] success=true steps=3 score=1.00 rewards=0.00,0.00,1.00
+"""
+
+import asyncio
 import os
-import sys
-import time
-from pathlib import Path
-from typing import Any
+import textwrap
+from typing import List, Optional
 
-import requests
+from openai import OpenAI
 
-try:
-    from openai import OpenAI
-except Exception:  # pragma: no cover - submission env fallback
-    OpenAI = None  # type: ignore[assignment]
+from my_env_v4 import MyEnvV4Action, MyEnvV4Env
+IMAGE_NAME = os.getenv("IMAGE_NAME") # If you are using docker image 
+API_KEY = os.getenv("hf_...fbCC") or os.getenv("hf_...fbCC")
 
-ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT / "bench"))
+API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
+MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
+TASK_NAME = os.getenv("MY_ENV_V4_TASK", "echo")
+BENCHMARK = os.getenv("MY_ENV_V4_BENCHMARK", "my_env_v4")
+MAX_STEPS = 8
+TEMPERATURE = 0.7
+MAX_TOKENS = 150
+SUCCESS_SCORE_THRESHOLD = 0.1  # normalized score in [0, 1]
 
-from graders import grade_task  # noqa: E402
+# Max possible reward: each token contributes 0.1, across all steps
+_MAX_REWARD_PER_STEP = MAX_TOKENS * 0.1
+MAX_TOTAL_REWARD = MAX_STEPS * _MAX_REWARD_PER_STEP
 
-
-API_BASE_URL = os.environ.get("API_BASE_URL", "").rstrip("/")
-MODEL_NAME = os.environ.get("MODEL_NAME", os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"))
-BENCHMARK_BASE_URL = os.environ.get("BENCHMARK_BASE_URL", "http://127.0.0.1:3001").rstrip("/")
-BENCHMARK_FALLBACK_URLS = [
-    BENCHMARK_BASE_URL,
-    "http://127.0.0.1:7860",
-    "http://localhost:7860",
-    "http://127.0.0.1:3001",
-    "http://localhost:3001",
-]
-REQUEST_TIMEOUT_SECONDS = 30
-REQUEST_RETRIES = 5
-BENCHMARK_READY_WAIT_SECONDS = 90
-TASK_NAME = os.environ.get("TASK_NAME", "openenv-benchmark")
-BENCHMARK = os.environ.get("BENCHMARK", "benchmark")
-
-def emit(line: str) -> None:
-    print(line, flush=True)
+SYSTEM_PROMPT = textwrap.dedent(
+    """
+    You are interacting with a simple echo environment.
+    Each turn you must send a message. The environment will echo it back.
+    Reward is proportional to message length: reward = len(message) * 0.1
+    Your goal is to maximize total reward by sending meaningful, substantive messages.
+    Reply with exactly one message string — no quotes, no prefixes, just the message text.
+    """
+).strip()
 
 
 def log_start(task: str, env: str, model: str) -> None:
-    emit(f"[START] task={task} env={env} model={model}")
+    print(f"[START] task={task} env={env} model={model}", flush=True)
 
 
-def log_step(step: int, action: str, reward: float, done: bool, error: str | None) -> None:
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
     error_val = error if error else "null"
-    emit(
-        f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()} error={error_val}"
+    done_val = str(done).lower()
+    print(
+        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
+        flush=True,
     )
 
 
-def log_end(success: bool, steps: int, score: float, rewards: list[float], error: str | None = None) -> None:
-    rewards_str = ",".join(f"{reward:.2f}" for reward in rewards)
-    suffix = f" error={error}" if error else ""
-    emit(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}{suffix}")
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 
-def resolve_llm_config() -> tuple[str, str]:
-    base_url = os.environ["API_BASE_URL"].strip().rstrip("/")
-    api_key = os.environ["API_KEY"].strip()
+def build_user_prompt(step: int, last_echoed: str, last_reward: float, history: List[str]) -> str:
+    history_block = "\n".join(history[-4:]) if history else "None"
+    return textwrap.dedent(
+        f"""
+        Step: {step}
+        Last echoed message: {last_echoed!r}
+        Last reward: {last_reward:.2f}
+        Previous steps:
+        {history_block}
+        Send your next message.
+        """
+    ).strip()
 
-    if not base_url:
-        raise RuntimeError("Missing API_BASE_URL. Submission must use the injected LiteLLM/OpenAI-compatible proxy.")
 
-    if not api_key:
-        raise RuntimeError("Missing API_KEY. Submission must use the injected proxy API key.")
-
-    if "api.openai.com" in base_url.lower():
-        raise RuntimeError(
-            "API_BASE_URL points to api.openai.com. Submission must use the injected LiteLLM/OpenAI-compatible proxy."
+def get_model_message(client: OpenAI, step: int, last_echoed: str, last_reward: float, history: List[str]) -> str:
+    user_prompt = build_user_prompt(step, last_echoed, last_reward, history)
+    try:
+        completion = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=TEMPERATURE,
+            max_tokens=MAX_TOKENS,
+            stream=False,
         )
-
-    return base_url, api_key
-
-
-def build_client() -> OpenAI | None:
-    if OpenAI is None:
-        raise RuntimeError("OpenAI client is not available in this environment.")
-    base_url, api_key = resolve_llm_config()
-    client = OpenAI(
-        base_url=base_url,
-        api_key=api_key,
-    )
-    warmup_llm_proxy(client)
-    return client
-
-
-def deterministic_lane(state: dict[str, Any]) -> int:
-    if state.get("evaluation") == "emergency" and state.get("emergency_lane_id") is not None:
-        return int(state["emergency_lane_id"])
-
-    lanes = sorted(
-        state.get("lanes", []),
-        key=lambda lane: (-int(lane.get("detected_count", 0)), int(lane.get("lane_id", 0))),
-    )
-    return int(lanes[0]["lane_id"]) if lanes else 0
-
-
-def llm_payload(state: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "task": state.get("title"),
-        "description": state.get("description"),
-        "evaluation": state.get("evaluation"),
-        "emergency_lane_id": state.get("emergency_lane_id"),
-        "lanes": [
-            {
-                "lane_id": lane["lane_id"],
-                "name": lane["name"],
-                "detected_count": lane["detected_count"],
-                "has_ambulance": lane["has_ambulance"],
-                "top_detections": lane["detections"],
-            }
-            for lane in state.get("lanes", [])
-        ],
-        "instruction": "Return JSON with a single integer field named selected_lane_id.",
-    }
-
-
-def llm_messages(state: dict[str, Any]) -> list[dict[str, str]]:
-    return [
-        {
-            "role": "system",
-            "content": "You are a traffic-signal controller. Choose the best next lane. If any lane is an emergency lane, prioritize it. Reply with strict JSON only.",
-        },
-        {"role": "user", "content": json.dumps(llm_payload(state))},
-    ]
-
-
-def parse_selected_lane_id(content: str) -> int:
-    payload = json.loads(content or "{}")
-    return int(payload["selected_lane_id"])
-
-
-def llm_lane_via_client(client: OpenAI, state: dict[str, Any]) -> int:
-    response = client.chat.completions.create(
-        model=MODEL_NAME,
-        messages=llm_messages(state),
-        response_format={"type": "json_object"},
-        temperature=0,
-    )
-    return parse_selected_lane_id(response.choices[0].message.content or "{}")
-
-
-def warmup_llm_proxy(client: OpenAI) -> None:
-    client.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[
-            {
-                "role": "user",
-                "content": 'Reply with strict JSON only: {"selected_lane_id":0}',
-            }
-        ],
-        response_format={"type": "json_object"},
-        temperature=0,
-        max_tokens=20,
-    )
-
-
-def llm_lane(client: OpenAI, state: dict[str, Any]) -> int:
-    return llm_lane_via_client(client, state)
-
-
-def choose_lane(client: OpenAI, state: dict[str, Any]) -> tuple[int, str]:
-    if client is None:
-        return deterministic_lane(state), "deterministic-fallback"
-
-    try:
-        return llm_lane(client, state), "openai-client"
-    except Exception:
-        return deterministic_lane(state), "deterministic-fallback"
-
-
-def benchmark_candidates() -> list[str]:
-    seen: set[str] = set()
-    candidates: list[str] = []
-    for base_url in BENCHMARK_FALLBACK_URLS:
-        normalized = base_url.rstrip("/")
-        if normalized and normalized not in seen:
-            seen.add(normalized)
-            candidates.append(normalized)
-    return candidates
-
-
-def resolve_benchmark_base_url(session: requests.Session) -> str:
-    started_at = time.monotonic()
-    last_error: Exception | None = None
-
-    while time.monotonic() - started_at < BENCHMARK_READY_WAIT_SECONDS:
-        for candidate in benchmark_candidates():
-            try:
-                health = session.get(f"{candidate}/health", timeout=10)
-                health.raise_for_status()
-                tasks = session.get(f"{candidate}/tasks", timeout=10)
-                tasks.raise_for_status()
-                return candidate
-            except requests.RequestException as exc:
-                last_error = exc
-
-        time.sleep(2)
-
-    if last_error is not None:
-        raise RuntimeError(f"Benchmark endpoint was not reachable: {last_error}") from last_error
-    raise RuntimeError("Benchmark endpoint was not reachable.")
-
-
-def request_json(
-    session: requests.Session,
-    benchmark_base_url: str,
-    method: str,
-    endpoint: str,
-    payload: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    last_error: Exception | None = None
-
-    for attempt in range(REQUEST_RETRIES):
-        try:
-            response = session.request(
-                method,
-                f"{benchmark_base_url}{endpoint}",
-                json=payload,
-                timeout=REQUEST_TIMEOUT_SECONDS,
-            )
-            response.raise_for_status()
-            return response.json()
-        except requests.RequestException as exc:
-            last_error = exc
-            if attempt < REQUEST_RETRIES - 1:
-                time.sleep(min(1.5 * (attempt + 1), 5))
-
-    raise RuntimeError(f"Request failed for {endpoint}: {last_error}") from last_error
-
-
-def main() -> None:
-    session = requests.Session()
-    rewards: list[float] = []
-    step_count = 0
-    final_score = 0.0
-
-    try:
-        log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
-
-        try:
-            client = build_client()
-        except Exception:
-            client = None
-
-        benchmark_base_url = resolve_benchmark_base_url(session)
-        tasks_payload = request_json(session, benchmark_base_url, "GET", "/tasks")
-        tasks = tasks_payload.get("tasks", [])
-
-        scores: list[dict[str, Any]] = []
-        for index, task in enumerate(tasks, start=1):
-            reset_state = request_json(session, benchmark_base_url, "POST", "/reset", {"task_id": task["id"]})
-            state = request_json(session, benchmark_base_url, "GET", "/state")
-            lane_id, policy = choose_lane(client, state)
-            result = request_json(session, benchmark_base_url, "POST", "/step", {"selected_lane_id": lane_id})
-            graded_score = grade_task(reset_state, lane_id)
-            score = min(max(float(result.get("score", graded_score)), 0.01), 0.99)
-            step_count = index
-            rewards.append(score)
-            error = result.get("error")
-            error_text = "null" if error in (None, "", "null") else str(error).replace("\n", " ")
-            done = "true" if index == len(tasks) else "false"
-
-            scores.append(
-                {
-                    "task_id": task["id"],
-                    "selected_lane_id": lane_id,
-                    "score": round(score, 3),
-                    "policy": policy,
-                }
-            )
-            log_step(step=index, action=f"select_lane({lane_id})", reward=score, done=index == len(tasks), error=error_text)
-
-        final_score = round(sum(item["score"] for item in scores) / max(1, len(scores)), 3)
-        log_end(success=True, steps=step_count, score=final_score, rewards=rewards)
+        text = (completion.choices[0].message.content or "").strip()
+        return text if text else "hello"
     except Exception as exc:
-        log_end(
-            success=False,
-            steps=step_count,
-            score=final_score,
-            rewards=rewards,
-            error=str(exc).replace(chr(10), " "),
-        )
-        return
+        print(f"[DEBUG] Model request failed: {exc}", flush=True)
+        return "hello"
+
+
+async def main() -> None:
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+
+    env = await MyEnvV4Env.from_docker_image(IMAGE_NAME)
+
+    history: List[str] = []
+    rewards: List[float] = []
+    steps_taken = 0
+    score = 0.0
+    success = False
+
+    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+
+    try:
+        result = await env.reset() # OpenENV.reset()
+        last_echoed = result.observation.echoed_message
+        last_reward = 0.0
+
+        for step in range(1, MAX_STEPS + 1):
+            if result.done:
+                break
+
+            message = get_model_message(client, step, last_echoed, last_reward, history)
+
+            result = await env.step(MyEnvV4Action(message=message))
+            obs = result.observation
+
+            reward = result.reward or 0.0
+            done = result.done
+            error = None
+
+            rewards.append(reward)
+            steps_taken = step
+            last_echoed = obs.echoed_message
+            last_reward = reward
+
+            log_step(step=step, action=message, reward=reward, done=done, error=error)
+
+            history.append(f"Step {step}: {message!r} -> reward {reward:+.2f}")
+
+            if done:
+                break
+
+        score = sum(rewards) / MAX_TOTAL_REWARD if MAX_TOTAL_REWARD > 0 else 0.0
+        score = min(max(score, 0.0), 1.0)  # clamp to [0, 1]
+        success = score >= SUCCESS_SCORE_THRESHOLD
+
+    finally:
+        try:
+            await env.close()
+        except Exception as e:
+            print(f"[DEBUG] env.close() error (container cleanup): {e}", flush=True)
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except BaseException as exc:  # pragma: no cover - final submission safety net
-        log_end(success=False, steps=0, score=0.0, rewards=[], error=f"fatal: {str(exc).replace(chr(10), ' ')}")
+    asyncio.run(main())
