@@ -72,11 +72,9 @@ def load_local_env(env_path: Path) -> None:
 
 load_local_env(ROOT / ".env")
 
-IMAGE_NAME = os.getenv("IMAGE_NAME")  # If you are using docker image
-api_key=os.environ["API_KEY"]
-
-
-base_url=os.environ["API_BASE_URL"]
+IMAGE_NAME = os.getenv("IMAGE_NAME")
+API_KEY = os.environ["API_KEY"]
+API_BASE_URL = os.environ["API_BASE_URL"]
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 TASK_NAME = os.getenv("TASK_NAME", "openenv-benchmark")
 BENCHMARK = os.getenv("BENCHMARK", "benchmark")
@@ -281,8 +279,9 @@ def main() -> None:
 
             try:
                 lane_id = get_model_message(client, state, history)
-            except Exception:
-                lane_id = deterministic_lane(state)
+            except Exception as e:
+                print(f"LLM call failed: {e}", flush=True)
+                raise
 
             result = request_json(session, benchmark_base_url, "POST", "/step", {"selected_lane_id": lane_id})
             reward = min(max(float(result.get("score", grade_task(reset_state, lane_id))), 0.01), 0.99)
@@ -296,7 +295,8 @@ def main() -> None:
 
         score = min(max(sum(rewards) / max(1, len(rewards)), 0.01), 0.99)
         success = score >= SUCCESS_SCORE_THRESHOLD
-    except BaseException:
+    except Exception as e:
+        print(f"Fatal error: {e}", flush=True)
         success = False
     finally:
         if session is not None:
