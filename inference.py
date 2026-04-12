@@ -73,10 +73,10 @@ def load_local_env(env_path: Path) -> None:
 load_local_env(ROOT / ".env")
 
 IMAGE_NAME = os.getenv("IMAGE_NAME")  # If you are using docker image
-API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
+API_KEY = os.environ["API_KEY"]
 
 
-API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
+API_BASE_URL = os.environ["API_BASE_URL"]
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 TASK_NAME = os.getenv("TASK_NAME", "openenv-benchmark")
 BENCHMARK = os.getenv("BENCHMARK", "benchmark")
