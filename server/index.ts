@@ -650,6 +650,14 @@ app.get('/api/detections', async (req, res) => {
         res.json(busyFallback);
         return;
       }
+
+      res.json({
+        detections: [],
+        hasAmbulance: false,
+        note: LIVE_EMPTY_FALLBACK_NOTE,
+        stale: true,
+      });
+      return;
     }
 
     const result = await runDetector(video, quantizedTimestamp, cacheKey);
