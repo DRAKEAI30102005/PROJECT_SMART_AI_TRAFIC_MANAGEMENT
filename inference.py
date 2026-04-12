@@ -33,9 +33,28 @@ BENCHMARK_FALLBACK_URLS = [
 REQUEST_TIMEOUT_SECONDS = 30
 REQUEST_RETRIES = 5
 BENCHMARK_READY_WAIT_SECONDS = 90
+TASK_NAME = os.environ.get("TASK_NAME", "openenv-benchmark")
+BENCHMARK = os.environ.get("BENCHMARK", "benchmark")
 
 def emit(line: str) -> None:
     print(line, flush=True)
+
+
+def log_start(task: str, env: str, model: str) -> None:
+    emit(f"[START] task={task} env={env} model={model}")
+
+
+def log_step(step: int, action: str, reward: float, done: bool, error: str | None) -> None:
+    error_val = error if error else "null"
+    emit(
+        f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()} error={error_val}"
+    )
+
+
+def log_end(success: bool, steps: int, score: float, rewards: list[float], error: str | None = None) -> None:
+    rewards_str = ",".join(f"{reward:.2f}" for reward in rewards)
+    suffix = f" error={error}" if error else ""
+    emit(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}{suffix}")
 
 
 def resolve_llm_config() -> tuple[str, str]:
@@ -217,14 +236,14 @@ def main() -> None:
     session = requests.Session()
     rewards: list[float] = []
     step_count = 0
+    final_score = 0.0
 
     try:
-        emit(f"[START] task=openenv-benchmark env=benchmark model={MODEL_NAME}")
+        log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
 
         try:
             client = build_client()
-        except Exception as exc:
-            emit(f"[WARN] llm_proxy_unavailable error={str(exc).replace(chr(10), ' ')}")
+        except Exception:
             client = None
 
         benchmark_base_url = resolve_benchmark_base_url(session)
@@ -253,16 +272,18 @@ def main() -> None:
                     "policy": policy,
                 }
             )
-            emit(
-                f"[STEP] step={index} action=select_lane({lane_id}) reward={score:.2f} done={done} error={error_text}"
-            )
+            log_step(step=index, action=f"select_lane({lane_id})", reward=score, done=index == len(tasks), error=error_text)
 
-        average_score = round(sum(item["score"] for item in scores) / max(1, len(scores)), 3)
-        rewards_text = ",".join(f"{reward:.2f}" for reward in rewards)
-        emit(f"[END] success=true steps={step_count} rewards={rewards_text}")
+        final_score = round(sum(item["score"] for item in scores) / max(1, len(scores)), 3)
+        log_end(success=True, steps=step_count, score=final_score, rewards=rewards)
     except Exception as exc:
-        rewards_text = ",".join(f"{reward:.2f}" for reward in rewards)
-        emit(f"[END] success=false steps={step_count} rewards={rewards_text} error={str(exc).replace(chr(10), ' ')}")
+        log_end(
+            success=False,
+            steps=step_count,
+            score=final_score,
+            rewards=rewards,
+            error=str(exc).replace(chr(10), " "),
+        )
         return
 
 
@@ -270,4 +291,4 @@ if __name__ == "__main__":
     try:
         main()
     except BaseException as exc:  # pragma: no cover - final submission safety net
-        emit(f"[END] success=false steps=0 rewards= error=fatal: {str(exc).replace(chr(10), ' ')}")
+        log_end(success=False, steps=0, score=0.0, rewards=[], error=f"fatal: {str(exc).replace(chr(10), ' ')}")
