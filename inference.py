@@ -257,7 +257,7 @@ def main() -> None:
             lane_id, policy = choose_lane(client, state)
             result = request_json(session, benchmark_base_url, "POST", "/step", {"selected_lane_id": lane_id})
             graded_score = grade_task(reset_state, lane_id)
-            score = min(max(float(result.get("score", graded_score)), 0.0), 1.0)
+            score = min(max(float(result.get("score", graded_score)), 0.01), 0.99)
             step_count = index
             rewards.append(score)
             error = result.get("error")
