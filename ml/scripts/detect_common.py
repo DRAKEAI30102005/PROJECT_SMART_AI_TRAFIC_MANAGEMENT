@@ -22,6 +22,16 @@ TARGET_CLASSES = {"car", "motorcycle", "bus", "truck", "ambulance"}
 FRAME_CACHE: dict[str, dict[str, Any]] = {}
 MIN_MOTION_AREA = 0.0018
 MERGE_IOU_THRESHOLD = 0.35
+PRIMARY_IMG_SIZE_CUSTOM = 320
+PRIMARY_IMG_SIZE_DEFAULT = 288
+PRIMARY_CONF_CUSTOM = 0.22
+PRIMARY_CONF_DEFAULT = 0.24
+PRIMARY_MAX_DET = 10
+SECONDARY_IMG_SIZE = 416
+SECONDARY_CONF_CUSTOM = 0.16
+SECONDARY_CONF_DEFAULT = 0.18
+SECONDARY_MAX_DET = 12
+SECONDARY_PASS_TRIGGER_COUNT = 1
 
 try:
     cv2.setNumThreads(1)
@@ -225,22 +235,22 @@ def run_detection(model: YOLO, video_path: Path, timestamp: float, uses_custom_w
         width,
         height,
         video_path,
-        imgsz=384 if uses_custom_weights else 352,
-        conf=0.2 if uses_custom_weights else 0.22,
-        max_det=14,
+        imgsz=PRIMARY_IMG_SIZE_CUSTOM if uses_custom_weights else PRIMARY_IMG_SIZE_DEFAULT,
+        conf=PRIMARY_CONF_CUSTOM if uses_custom_weights else PRIMARY_CONF_DEFAULT,
+        max_det=PRIMARY_MAX_DET,
     )
     detections = primary_detections
 
-    if len(primary_detections) <= 4:
+    if len(primary_detections) <= SECONDARY_PASS_TRIGGER_COUNT:
         secondary_detections = predict_detections(
             model,
             frame,
             width,
             height,
             video_path,
-            imgsz=512 if uses_custom_weights else 512,
-            conf=0.14 if uses_custom_weights else 0.16,
-            max_det=18,
+            imgsz=SECONDARY_IMG_SIZE,
+            conf=SECONDARY_CONF_CUSTOM if uses_custom_weights else SECONDARY_CONF_DEFAULT,
+            max_det=SECONDARY_MAX_DET,
         )
         detections = merge_new_detections(detections, secondary_detections)
 

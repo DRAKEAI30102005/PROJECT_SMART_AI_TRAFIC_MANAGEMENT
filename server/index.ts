@@ -78,6 +78,7 @@ const DETECTION_WORKER_TIMEOUT_MS = Math.max(12000, Number(process.env.DETECTION
 const PREFETCH_ENABLED = process.env.DETECTION_PREFETCH === 'true';
 const PRIME_CACHE_ON_STARTUP = process.env.DETECTION_PRIME_CACHE !== 'false';
 const LIVE_EMPTY_FALLBACK_NOTE = 'Detector is still catching up. Keeping the live stream active with the last stable state.';
+const LIVE_STABLE_FALLBACK_NOTE = 'Streaming the latest stable detections while a fresh frame is processed.';
 const PRIMED_FRAME_TIME_BY_VIDEO: Record<string, number> = {
   'video1.mp4': 0.5,
   'video2.mp4': 0.5,
@@ -165,7 +166,25 @@ function staleVideoResult(video: string, timestamp: number): DetectionResult | n
   return {
     ...cached.result,
     stale: true,
-    note: 'Streaming the latest stable detections while a fresh frame is processed.',
+    note: LIVE_STABLE_FALLBACK_NOTE,
+  };
+}
+
+function bestEffortVideoResult(video: string, timestamp: number): DetectionResult | null {
+  const nearbyFallback = staleVideoResult(video, timestamp);
+  if (nearbyFallback) {
+    return nearbyFallback;
+  }
+
+  const latestStable = lastDetectionByVideo.get(video);
+  if (!latestStable) {
+    return null;
+  }
+
+  return {
+    ...latestStable.result,
+    stale: true,
+    note: LIVE_STABLE_FALLBACK_NOTE,
   };
 }
 
@@ -559,7 +578,7 @@ function runDetector(video: string, timestamp: number, cacheKey: string): Promis
 
           const liveCacheKey = parseLiveCacheKey(cacheKey);
           if (liveCacheKey) {
-            const videoFallback = staleVideoResult(liveCacheKey.video, liveCacheKey.timestamp);
+            const videoFallback = bestEffortVideoResult(liveCacheKey.video, liveCacheKey.timestamp);
             if (videoFallback) {
               resolve(videoFallback);
               return;
@@ -635,7 +654,7 @@ app.get('/api/detections', async (req, res) => {
   }
 
   try {
-    const fallback = staleVideoResult(video, quantizedTimestamp);
+    const fallback = bestEffortVideoResult(video, quantizedTimestamp);
     if (fallback) {
       void runDetector(video, quantizedTimestamp, cacheKey).catch(() => {
         // Keep serving the last stable result while the next frame catches up.
@@ -646,17 +665,20 @@ app.get('/api/detections', async (req, res) => {
     }
 
     if (!hasWorkerCapacityForFreshDetection()) {
-      res.json({
-        detections: [],
-        hasAmbulance: false,
-        note: LIVE_EMPTY_FALLBACK_NOTE,
-        stale: true,
-      });
+      const capacityFallback = bestEffortVideoResult(video, quantizedTimestamp);
+      res.json(
+        capacityFallback ?? {
+          detections: [],
+          hasAmbulance: false,
+          note: LIVE_EMPTY_FALLBACK_NOTE,
+          stale: true,
+        }
+      );
       return;
     }
 
     if (hasVideoRequestInFlight(video)) {
-      const busyFallback = staleVideoResult(video, quantizedTimestamp);
+      const busyFallback = bestEffortVideoResult(video, quantizedTimestamp);
       if (busyFallback) {
         void runDetector(video, quantizedTimestamp, cacheKey).catch(() => {
           // Keep the refresh loop running in the background.
