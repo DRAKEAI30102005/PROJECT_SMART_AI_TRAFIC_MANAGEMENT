@@ -302,6 +302,18 @@ export function LaneCard({
   }, [trackedDetections]);
 
   const applyDetectionPayload = (payload: DetectionApiResponse, timeInSeconds: number) => {
+    const shouldPreserveVisibleTracks =
+      payload.stale &&
+      payload.detections.length === 0 &&
+      trackedDetectionsRef.current.some((track) => track.missingFrames === 0);
+
+    if (shouldPreserveVisibleTracks) {
+      setModelNote('Analyzing traffic flow...');
+      setError(null);
+      setIsLoading(false);
+      return;
+    }
+
     const mappedDetections = payload.detections.map((item, index) => ({
       ...item,
       id: `${item.label}-${index}-${item.x}-${item.y}-${item.w}-${item.h}`,
